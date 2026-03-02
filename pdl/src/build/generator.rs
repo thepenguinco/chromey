@@ -550,7 +550,6 @@ impl Generator {
                 deprecated: false,
                 is_enum: false,
                 serde_skip: true,
-                non_defaultable: false,
             };
 
             let def = field.field_definition();
@@ -611,12 +610,6 @@ impl Generator {
                 param.r#type.is_enum()
             };
 
-            // Binary, Enum, and Ref types may not implement Default
-            let non_defaultable = matches!(
-                &param.r#type,
-                Type::Binary | Type::Enum(_) | Type::Ref(_)
-            );
-
             let field = FieldDefinition {
                 name: param.name().to_string(),
                 name_ident: field_name,
@@ -625,7 +618,6 @@ impl Generator {
                 deprecated: param.is_deprecated(),
                 is_enum,
                 serde_skip: false,
-                non_defaultable,
             };
 
             builder
@@ -635,11 +627,7 @@ impl Generator {
 
         self.apply_struct_fixup(&mut builder, dt);
 
-        let derives = if !builder.has_non_defaultable_mandatory_types() {
-            quote! { #[derive(Debug, Clone, PartialEq, Default)] }
-        } else {
-            quote! { #[derive(Debug, Clone, PartialEq)] }
-        };
+        let derives = quote! { #[derive(Debug, Clone, PartialEq, Default)] };
 
         let serde_derives = self.serde_support.generate_derives();
 
@@ -723,6 +711,8 @@ impl Generator {
                 })
             }
         } else {
+            let serde_default_attr = self.serde_support.generate_struct_default_attr();
+            stream.extend(serde_default_attr);
             let struct_def = builder.generate_struct_def();
             stream.extend(quote! {
                 #struct_def
@@ -750,9 +740,18 @@ impl Generator {
 
         self.type_size.insert(enum_name, 16);
 
-        let vars = variants
+        let vars: Vec<_> = variants
             .iter()
-            .map(|v| self.serde_support.generate_variant(v));
+            .enumerate()
+            .map(|(i, v)| {
+                let variant_tokens = self.serde_support.generate_variant(v);
+                if i == 0 {
+                    quote! { #[default] #variant_tokens }
+                } else {
+                    variant_tokens
+                }
+            })
+            .collect();
 
         let desc = if let Some(desc) = ident.description.as_ref() {
             quote! {
@@ -766,7 +765,7 @@ impl Generator {
 
         let ty_def = quote! {
             #desc
-            #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
             #attr
             pub enum #name {
                 #(#vars),*
@@ -1089,6 +1088,20 @@ impl SerdeSupport {
             SerdeSupport::Feature(feature) => {
                 quote! {
                     #[cfg_attr(feature = #feature, derive(Serialize, Deserialize))]
+                }
+            }
+        }
+    }
+
+    pub(crate) fn generate_struct_default_attr(&self) -> TokenStream {
+        match self {
+            SerdeSupport::None => TokenStream::default(),
+            SerdeSupport::Default => quote! {
+                 #[serde(default)]
+            },
+            SerdeSupport::Feature(feature) => {
+                quote! {
+                     #[cfg_attr(feature = #feature, serde(default))]
                 }
             }
         }

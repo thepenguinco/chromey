@@ -241,7 +241,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// Represents a binary type as defined in the CDP protocol.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Binary(pub String);
 
 impl AsRef<str> for Binary {

@@ -252,8 +252,6 @@ pub struct FieldDefinition {
     pub deprecated: bool,
     pub is_enum: bool,
     pub serde_skip: bool,
-    /// True if this field's type may not implement `Default` (Binary, Ref types).
-    pub non_defaultable: bool,
 }
 
 impl FieldDefinition {

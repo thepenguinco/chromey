@@ -17,12 +17,6 @@ impl Builder {
         }
     }
 
-    /// Returns true if any mandatory field has a type that may not implement
-    /// `Default` (enum types, Binary, or Ref types that could resolve to enums).
-    pub fn has_non_defaultable_mandatory_types(&self) -> bool {
-        self.mandatory().any(|f| f.is_enum || f.non_defaultable)
-    }
-
     fn mandatory(&self) -> impl Iterator<Item = &FieldDefinition> + '_ {
         self.fields
             .iter()
