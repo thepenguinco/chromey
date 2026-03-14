@@ -52,7 +52,12 @@ pub struct PageHandle {
 }
 
 impl PageHandle {
-    pub fn new(target_id: TargetId, session_id: SessionId, opener_id: Option<TargetId>) -> Self {
+    pub fn new(
+        target_id: TargetId,
+        session_id: SessionId,
+        opener_id: Option<TargetId>,
+        request_timeout: std::time::Duration,
+    ) -> Self {
         let (commands, rx) = channel(100);
         let page = PageInner {
             target_id,
@@ -60,6 +65,7 @@ impl PageHandle {
             opener_id,
             sender: commands,
             smart_mouse: SmartMouse::new(),
+            request_timeout,
         };
         Self {
             rx: rx.fuse(),
@@ -84,6 +90,8 @@ pub(crate) struct PageInner {
     sender: Sender<TargetMessage>,
     /// Smart mouse with position tracking and human-like movement.
     pub(crate) smart_mouse: SmartMouse,
+    /// The request timeout for CDP commands issued from this page.
+    request_timeout: std::time::Duration,
 }
 
 impl PageInner {
@@ -100,7 +108,12 @@ impl PageInner {
 
     /// Create a PDL command future
     pub(crate) fn command_future<T: Command>(&self, cmd: T) -> Result<CommandFuture<T>> {
-        CommandFuture::new(cmd, self.sender.clone(), Some(self.session_id.clone()))
+        CommandFuture::new(
+            cmd,
+            self.sender.clone(),
+            Some(self.session_id.clone()),
+            self.request_timeout,
+        )
     }
 
     /// This creates navigation future with the final http response when the page is loaded

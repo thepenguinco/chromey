@@ -352,7 +352,11 @@ impl Handler {
             let (req, tx) = msg.split();
             let id = self.next_navigation_id();
 
-            target.goto(FrameRequestedNavigation::new(id, req));
+            target.goto(FrameRequestedNavigation::new(
+                id,
+                req,
+                self.config.request_timeout,
+            ));
 
             self.navigations.insert(
                 id,

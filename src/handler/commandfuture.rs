@@ -41,6 +41,7 @@ impl<T: Command> CommandFuture<T> {
         cmd: T,
         target_sender: mpsc::Sender<TargetMessage>,
         session: Option<SessionId>,
+        request_timeout: std::time::Duration,
     ) -> Result<Self> {
         let (tx, rx_command) = oneshot_channel::<Result<Response>>();
         let method = cmd.identifier();
@@ -49,9 +50,7 @@ impl<T: Command> CommandFuture<T> {
             cmd, tx, session,
         )?));
 
-        let delay = futures_timer::Delay::new(std::time::Duration::from_millis(
-            crate::handler::REQUEST_TIMEOUT,
-        ));
+        let delay = futures_timer::Delay::new(request_timeout);
 
         Ok(Self {
             target_sender,
