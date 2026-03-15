@@ -53,17 +53,16 @@ impl<T: EventMessage + Unpin> Connection<T> {
     pub async fn connect(debug_ws_url: impl AsRef<str>) -> Result<Self> {
         let mut config = WebSocketConfig::default();
 
-        if *WEBSOCKET_DEFAULTS == false {
+        if !*WEBSOCKET_DEFAULTS {
             config.max_message_size = None;
             config.max_frame_size = None;
         }
 
-        let (ws, _) = tokio_tungstenite::connect_async_with_config(
-            debug_ws_url.as_ref(),
-            Some(config),
-            *DISABLE_NAGLE,
-        )
-        .await?;
+        let ws = if crate::uring_fs::is_enabled() {
+            Self::connect_uring(debug_ws_url.as_ref(), config).await?
+        } else {
+            Self::connect_default(debug_ws_url.as_ref(), config).await?
+        };
 
         Ok(Self {
             pending_commands: Default::default(),
@@ -73,6 +72,66 @@ impl<T: EventMessage + Unpin> Connection<T> {
             pending_flush: None,
             _marker: Default::default(),
         })
+    }
+
+    /// Default path: let tokio-tungstenite handle TCP connect + WS handshake.
+    async fn connect_default(
+        url: &str,
+        config: WebSocketConfig,
+    ) -> Result<WebSocketStream<ConnectStream>> {
+        let (ws, _) =
+            tokio_tungstenite::connect_async_with_config(url, Some(config), *DISABLE_NAGLE).await?;
+        Ok(ws)
+    }
+
+    /// io_uring path: pre-connect the TCP socket via io_uring, then do WS
+    /// handshake over the pre-connected stream.
+    async fn connect_uring(
+        url: &str,
+        config: WebSocketConfig,
+    ) -> Result<WebSocketStream<ConnectStream>> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+        let request = url.into_client_request()?;
+        let host = request
+            .uri()
+            .host()
+            .ok_or_else(|| CdpError::msg("no host in CDP WebSocket URL"))?;
+        let port = request.uri().port_u16().unwrap_or(9222);
+
+        // Resolve host → SocketAddr (CDP is always localhost, so this is fast).
+        let addr_str = format!("{}:{}", host, port);
+        let addr: std::net::SocketAddr = match addr_str.parse() {
+            Ok(a) => a,
+            Err(_) => {
+                // Hostname needs DNS — fall back to default path.
+                return Self::connect_default(url, config).await;
+            }
+        };
+
+        // TCP connect via io_uring.
+        let std_stream = crate::uring_fs::tcp_connect(addr)
+            .await
+            .map_err(CdpError::Io)?;
+
+        // Set non-blocking + Nagle.
+        std_stream.set_nonblocking(true).map_err(CdpError::Io)?;
+        if *DISABLE_NAGLE {
+            let _ = std_stream.set_nodelay(true);
+        }
+
+        // Wrap in tokio TcpStream.
+        let tokio_stream = tokio::net::TcpStream::from_std(std_stream).map_err(CdpError::Io)?;
+
+        // WebSocket handshake over the pre-connected stream.
+        let (ws, _) = tokio_tungstenite::client_async_with_config(
+            request,
+            MaybeTlsStream::Plain(tokio_stream),
+            Some(config),
+        )
+        .await?;
+
+        Ok(ws)
     }
 }
 

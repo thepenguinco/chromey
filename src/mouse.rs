@@ -159,8 +159,7 @@ pub fn generate_path(from: Point, to: Point, config: &SmartMouseConfig) -> Vec<M
 
         // Vary delay for natural timing
         let delay_variation: f64 = rng.random_range(0.7..1.3);
-        let delay =
-            Duration::from_millis((config.step_delay_ms as f64 * delay_variation) as u64);
+        let delay = Duration::from_millis((config.step_delay_ms as f64 * delay_variation) as u64);
 
         path.push(MovementStep { point: p, delay });
     }
@@ -168,26 +167,18 @@ pub fn generate_path(from: Point, to: Point, config: &SmartMouseConfig) -> Vec<M
     // Correction steps back to actual target after overshoot
     if should_overshoot {
         let correction_steps = steps.saturating_sub(main_steps).max(3);
-        let last = path
-            .last()
-            .map(|s| s.point)
-            .unwrap_or(overshoot_target);
+        let last = path.last().map(|s| s.point).unwrap_or(overshoot_target);
 
         for i in 1..=correction_steps {
             let t = i as f64 / correction_steps as f64;
-            let t = if config.easing {
-                ease_in_out(t)
-            } else {
-                t
-            };
+            let t = if config.easing { ease_in_out(t) } else { t };
 
             let p = Point {
                 x: last.x + (to.x - last.x) * t,
                 y: last.y + (to.y - last.y) * t,
             };
 
-            let delay =
-                Duration::from_millis((config.step_delay_ms as f64 * 0.6) as u64);
+            let delay = Duration::from_millis((config.step_delay_ms as f64 * 0.6) as u64);
             path.push(MovementStep { point: p, delay });
         }
     }
@@ -329,7 +320,10 @@ mod tests {
         for i in 1..=100 {
             let t = i as f64 / 100.0;
             let val = ease_in_out(t);
-            assert!(val >= prev, "ease_in_out should be monotonically increasing");
+            assert!(
+                val >= prev,
+                "ease_in_out should be monotonically increasing"
+            );
             prev = val;
         }
     }
@@ -360,7 +354,11 @@ mod tests {
 
         let path = generate_path(from, to, &config);
 
-        assert_eq!(path.len(), 1, "very short moves should produce a single step");
+        assert_eq!(
+            path.len(),
+            1,
+            "very short moves should produce a single step"
+        );
         assert!((path[0].point.x - to.x).abs() < 1e-10);
         assert!((path[0].point.y - to.y).abs() < 1e-10);
     }
@@ -518,15 +516,15 @@ mod tests {
             ..Default::default()
         };
 
-        let path = generate_path(
-            Point::new(0.0, 0.0),
-            Point::new(500.0, 500.0),
-            &config,
-        );
+        let path = generate_path(Point::new(0.0, 0.0), Point::new(500.0, 500.0), &config);
 
         for step in &path {
             // Delays should be within 0-30ms range for a 10ms base
-            assert!(step.delay.as_millis() <= 30, "delay too large: {:?}", step.delay);
+            assert!(
+                step.delay.as_millis() <= 30,
+                "delay too large: {:?}",
+                step.delay
+            );
         }
     }
 

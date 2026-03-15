@@ -2,12 +2,16 @@ use std::path::{Path, PathBuf};
 
 use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
 
-/// Write to file with configured runtime
+/// Write to file — uses io_uring when available, falls back to tokio::fs.
 pub(crate) async fn write<P: AsRef<Path> + Unpin, C: AsRef<[u8]>>(
     path: P,
     contents: C,
 ) -> std::io::Result<()> {
-    tokio::fs::write(path.as_ref(), contents.as_ref()).await
+    crate::uring_fs::write_file(
+        path.as_ref().display().to_string(),
+        contents.as_ref().to_vec(),
+    )
+    .await
 }
 
 /// Canonicalize path

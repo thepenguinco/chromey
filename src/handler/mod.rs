@@ -498,7 +498,7 @@ impl Handler {
         // remove the session
         if let Some(session) = self.sessions.remove(&event.session_id) {
             if let Some(target) = self.targets.get_mut(session.target_id()) {
-                target.session_id().take();
+                target.session_id_mut().take();
             }
         }
     }
@@ -695,8 +695,8 @@ impl Stream for Handler {
                     },
                     Err(err) => {
                         tracing::error!("WS Connection error: {:?}", err);
-                        match err {
-                            CdpError::Ws(ref ws_error) => match ws_error {
+                        if let CdpError::Ws(ref ws_error) = err {
+                            match ws_error {
                                 Error::AlreadyClosed => {
                                     pin.closing = true;
                                     dispose = true;
@@ -710,9 +710,8 @@ impl Stream for Handler {
                                     break;
                                 }
                                 _ => {}
-                            },
-                            _ => {}
-                        };
+                            }
+                        }
                         return Poll::Ready(Some(Err(err)));
                     }
                 }

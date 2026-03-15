@@ -308,10 +308,7 @@ impl FrameManager {
     pub fn get_isolated_world_name(&self) -> Option<&String> {
         self.main_frame
             .as_ref()
-            .and_then(|id| match self.frames.get(id) {
-                Some(fid) => Some(fid.get_isolated_world_name()),
-                _ => None,
-            })
+            .and_then(|id| self.frames.get(id).map(|fid| fid.get_isolated_world_name()))
     }
 
     pub fn frames(&self) -> impl Iterator<Item = &Frame> + '_ {
@@ -427,7 +424,7 @@ impl FrameManager {
     pub fn on_frame_tree(&mut self, frame_tree: FrameTree) {
         self.on_frame_attached(
             frame_tree.frame.id.clone(),
-            frame_tree.frame.parent_id.clone().map(Into::into),
+            frame_tree.frame.parent_id.clone(),
         );
         self.on_frame_navigated(&frame_tree.frame);
         if let Some(children) = frame_tree.child_frames {

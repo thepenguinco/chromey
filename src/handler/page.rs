@@ -162,11 +162,12 @@ impl PageInner {
         node_id: NodeId,
         backend_node_id: BackendNodeId,
     ) -> Result<String> {
-        let mut cmd = GetOuterHtmlParams::default();
-
-        cmd.backend_node_id = Some(backend_node_id);
-        cmd.node_id = Some(node_id);
-        cmd.object_id = Some(object_id);
+        let cmd = GetOuterHtmlParams {
+            backend_node_id: Some(backend_node_id),
+            node_id: Some(node_id),
+            object_id: Some(object_id),
+            ..Default::default()
+        };
 
         let chromiumoxide_types::CommandResponse { result, .. } = self.execute(cmd).await?;
 

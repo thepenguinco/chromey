@@ -59,11 +59,7 @@ pub fn host_and_rest(url: &str) -> Option<(&str, &str)> {
 
 #[inline]
 fn eq_ignore_ascii_case(a: &str, b: &str) -> bool {
-    a.len() == b.len()
-        && a.as_bytes()
-            .iter()
-            .zip(b.as_bytes().iter())
-            .all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
+    a.eq_ignore_ascii_case(b)
 }
 
 #[inline]
@@ -71,11 +67,7 @@ pub fn ends_with_ignore_ascii_case(hay: &str, suf: &str) -> bool {
     if suf.len() > hay.len() {
         return false;
     }
-    let a = &hay.as_bytes()[hay.len() - suf.len()..];
-    let b = suf.as_bytes();
-    a.iter()
-        .zip(b.iter())
-        .all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
+    hay[hay.len() - suf.len()..].eq_ignore_ascii_case(suf)
 }
 
 #[inline]
@@ -123,17 +115,8 @@ pub fn host_contains_label_icase(host: &str, label: &str) -> bool {
         }
         let end = i;
 
-        if end - start == lb.len() {
-            let mut ok = true;
-            for k in 0..lb.len() {
-                if hb[start + k].to_ascii_lowercase() != lb[k].to_ascii_lowercase() {
-                    ok = false;
-                    break;
-                }
-            }
-            if ok {
-                return true;
-            }
+        if end - start == lb.len() && hb[start..end].eq_ignore_ascii_case(lb) {
+            return true;
         }
     }
 
@@ -186,7 +169,7 @@ fn is_common_subdomain_label(lbl: &str) -> bool {
 }
 
 #[inline]
-pub fn base_domain_from_url<'a>(main_url: &'a str) -> Option<&'a str> {
+pub fn base_domain_from_url(main_url: &str) -> Option<&str> {
     let (host, _) = host_and_rest(main_url)?;
     Some(base_domain_from_host(host))
 }

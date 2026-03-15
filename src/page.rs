@@ -13,8 +13,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchDragEventType, DispatchMouseEventParams, DispatchMouseEventType, DragData, MouseButton,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::network::{
-    BlockPattern, Cookie, CookieParam, DeleteCookiesParams, GetCookiesParams,
-    SetBlockedUrLsParams,
+    BlockPattern, Cookie, CookieParam, DeleteCookiesParams, GetCookiesParams, SetBlockedUrLsParams,
     SetCookiesParams, SetExtraHttpHeadersParams, SetUserAgentOverrideParams, TimeSinceEpoch,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::page::*;
@@ -182,9 +181,9 @@ impl Page {
         custom_script: Option<&str>,
     ) -> Result<&Self> {
         let emulation_script = spider_fingerprint::emulate(
-            &user_agent,
-            &config,
-            &viewport,
+            user_agent,
+            config,
+            viewport,
             &custom_script.as_ref().map(|s| Box::new(s.to_string())),
         )
         .unwrap_or_default();
@@ -193,7 +192,7 @@ impl Page {
             format!(
                 "{};{};",
                 emulation_script,
-                spider_fingerprint::wrap_eval_script(&cs)
+                spider_fingerprint::wrap_eval_script(cs)
             )
         } else {
             emulation_script
@@ -224,7 +223,7 @@ impl Page {
             format!(
                 "{};{};",
                 spider_fingerprint::build_stealth_script(tier, os),
-                spider_fingerprint::wrap_eval_script(&cs)
+                spider_fingerprint::wrap_eval_script(cs)
             )
         } else {
             spider_fingerprint::build_stealth_script(tier, os)
@@ -1155,11 +1154,7 @@ impl Page {
             user_agent_metadata_builder
         };
 
-        if let Ok(user_agent_metadata) = user_agent_metadata_builder.build() {
-            Some(user_agent_metadata)
-        } else {
-            None
-        }
+        user_agent_metadata_builder.build().ok()
     }
 
     /// Allows overriding the user-agent for the [network](https://chromedevtools.github.io/devtools-protocol/tot/Network/#method-setUserAgentOverride) and [emulation](https://chromedevtools.github.io/devtools-protocol/tot/Emulation/#method-setUserAgentOverride ) with the given string.
@@ -1241,9 +1236,10 @@ impl Page {
     /// # Note: This does not return the actual HTML document of the page. To
     /// retrieve the HTML content of the page see `Page::content`.
     pub async fn get_document(&self) -> Result<Node> {
-        let mut cmd = GetDocumentParams::default();
-        cmd.depth = Some(-1);
-        cmd.pierce = Some(true);
+        let cmd = GetDocumentParams {
+            depth: Some(-1),
+            pierce: Some(true),
+        };
 
         let resp = self.execute(cmd).await?;
 
@@ -1278,9 +1274,10 @@ impl Page {
     /// Returns the outer HTML of the page.
     pub async fn outer_html(&self) -> Result<String> {
         let root = self.get_document().await?;
-        let mut p = chromiumoxide_cdp::cdp::browser_protocol::dom::GetOuterHtmlParams::default();
-
-        p.node_id = Some(root.node_id);
+        let p = chromiumoxide_cdp::cdp::browser_protocol::dom::GetOuterHtmlParams {
+            node_id: Some(root.node_id),
+            ..Default::default()
+        };
 
         let chromiumoxide_types::CommandResponse { result, .. } = self.execute(p).await?;
 

@@ -671,9 +671,9 @@ impl Browser {
 
     /// Returns all browser cookies.
     pub async fn get_cookies(&self) -> Result<Vec<Cookie>> {
-        let mut cmd = GetCookiesParams::default();
-
-        cmd.browser_context_id = self.browser_context.id.clone();
+        let cmd = GetCookiesParams {
+            browser_context_id: self.browser_context.id.clone(),
+        };
 
         Ok(self.execute(cmd).await?.result.cookies)
     }

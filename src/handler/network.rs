@@ -1,10 +1,9 @@
-use super::blockers::{
-    block_websites::block_xhr,
-    ignore_script_embedded, ignore_script_xhr, ignore_script_xhr_media,
-    xhr::IGNORE_XHR_ASSETS,
-};
 #[cfg(any(feature = "adblock", feature = "firewall"))]
 use super::blockers::block_websites::block_ads;
+use super::blockers::{
+    block_websites::block_xhr, ignore_script_embedded, ignore_script_xhr, ignore_script_xhr_media,
+    xhr::IGNORE_XHR_ASSETS,
+};
 use crate::auth::Credentials;
 #[cfg(feature = "_cache")]
 use crate::cache::BasicCachePolicy;
@@ -17,8 +16,8 @@ use chromiumoxide_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestSta
 use chromiumoxide_cdp::cdp::browser_protocol::network::{
     EmulateNetworkConditionsByRuleParams, EventLoadingFailed, EventLoadingFinished,
     EventRequestServedFromCache, EventRequestWillBeSent, EventResponseReceived, Headers,
-    InterceptionId, NetworkConditions, RequestId, ResourceType, Response,
-    SetCacheDisabledParams, SetExtraHttpHeadersParams,
+    InterceptionId, NetworkConditions, RequestId, ResourceType, Response, SetCacheDisabledParams,
+    SetExtraHttpHeadersParams,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::{
     fetch::{
@@ -560,7 +559,7 @@ impl NetworkManager {
     }
 
     pub fn set_cache_enabled(&mut self, enabled: bool) {
-        let run = self.user_cache_disabled != !enabled;
+        let run = self.user_cache_disabled == enabled;
         self.user_cache_disabled = !enabled;
         if run {
             self.update_protocol_cache_disabled();
@@ -680,7 +679,7 @@ impl NetworkManager {
     /// Example:
     /// - "https://cdn.example.net/js/app.js?x=y" -> Some("/js/app.js?x=y")
     #[inline]
-    fn url_path_with_leading_slash<'a>(url: &'a str) -> Option<&'a str> {
+    fn url_path_with_leading_slash(url: &str) -> Option<&str> {
         // find scheme separator
         let idx = url.find("//")?;
         let after_slashes = idx + 2;
@@ -751,9 +750,10 @@ impl NetworkManager {
                         {
                             block_request = true;
                         } else if block_css {
-                            block_request =
-                                CaseInsensitiveString::from(request_url[next_position..].as_bytes())
-                                    .contains(&**CSS_EXTENSION)
+                            block_request = CaseInsensitiveString::from(
+                                &request_url.as_bytes()[next_position..],
+                            )
+                            .contains(&**CSS_EXTENSION)
                         }
                     }
                 }
@@ -1367,10 +1367,10 @@ impl NetworkManager {
                             let fixed_location = location.replace(&redirect_resp.url, "");
 
                             if !fixed_location.is_empty() {
-                                request.response.as_mut().map(|resp| {
+                                if let Some(resp) = request.response.as_mut() {
                                     resp.headers.0["Location"] =
                                         serde_json::Value::String(fixed_location.clone());
-                                });
+                                }
                             }
 
                             redirect_location = Some(fixed_location);

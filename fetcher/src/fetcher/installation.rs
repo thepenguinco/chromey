@@ -13,6 +13,11 @@ pub struct BrowserFetcherInstallation {
 
 impl fmt::Display for BrowserFetcherInstallation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, Path: {}", self.build_info, self.executable_path.display())
+        write!(
+            f,
+            "{}, Path: {}",
+            self.build_info,
+            self.executable_path.display()
+        )
     }
 }

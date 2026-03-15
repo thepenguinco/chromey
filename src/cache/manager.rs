@@ -383,7 +383,9 @@ pub async fn put_hybrid_cache(
         let cached_response = http_cache_reqwest::HttpResponse {
             url: http_response.url,
             body: http_response.body,
-            headers: http_cache::HttpHeaders::Modern(crate::http::headers_to_multi(&http_response.headers)),
+            headers: http_cache::HttpHeaders::Modern(crate::http::headers_to_multi(
+                &http_response.headers,
+            )),
             version: http_response.version.into(),
             status: http_response.status,
             metadata: None,
@@ -621,8 +623,8 @@ async fn handle_single_response(
         // serve this resource on subsequent navigations in the same session,
         // and so the dedup check at the top of this function works.
         {
-            let parsed_url =
-                url::Url::parse(url.as_str()).unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+            let parsed_url = url::Url::parse(url.as_str())
+                .unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
 
             let uri: http::uri::Uri = url.as_str().parse().unwrap_or_default();
 
@@ -640,18 +642,15 @@ async fn handle_single_response(
             let http_res = http_cache_reqwest::HttpResponse {
                 url: parsed_url,
                 body: body_bytes.clone(),
-                headers: http_cache::HttpHeaders::Modern(crate::http::headers_to_multi(&resp_headers)),
+                headers: http_cache::HttpHeaders::Modern(crate::http::headers_to_multi(
+                    &resp_headers,
+                )),
                 version: version.into(),
                 status,
                 metadata: None,
             };
 
-            crate::cache::remote::session_cache_insert(
-                cache_site,
-                http_res,
-                policy,
-                &current_url,
-            );
+            crate::cache::remote::session_cache_insert(cache_site, http_res, policy, &current_url);
         }
 
         let job = super::dump_remote::DumpJob {

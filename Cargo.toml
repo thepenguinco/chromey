@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.40.0"
+version = "2.40.1"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -69,6 +69,10 @@ version = "2"
 default-features = false
 features = ["serde", "headers", "std"]
 
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "0.7", optional = true }
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
@@ -104,12 +108,12 @@ serde0 = ["spider_chromiumoxide_cdp/serde0"]
 auto-detect-executable = ["dep:which"]
 dynamic-versions = ["spider_fingerprint/dynamic-versions"]
 _cache = [
-    "dep:http-global-cache", 
-    "dep:http-cache", 
-    "dep:http-cache-semantics", 
-    "dep:lol_html", 
-    "dep:tokio-stream", 
-    "dep:http-cache-reqwest", 
+    "dep:http-global-cache",
+    "dep:http-cache",
+    "dep:http-cache-semantics",
+    "dep:lol_html",
+    "dep:tokio-stream",
+    "dep:http-cache-reqwest",
     "dep:auto_encoder",
     "dep:blake3",
     "dep:hex",
@@ -118,6 +122,7 @@ _cache = [
 cache = ["_cache", "http-global-cache/cache"]
 cache_mem = ["_cache", "http-global-cache/cache_mem"]
 serde_stacker = ["dep:serde_stacker", "serde_json/unbounded_depth"]
+io_uring = ["dep:io-uring"]
 
 # Temporary features until cargo weak dependencies bug is fixed
 # See https://github.com/rust-lang/cargo/issues/10801

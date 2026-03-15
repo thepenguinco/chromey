@@ -10,10 +10,10 @@
 
 use base64::engine::general_purpose;
 use base64::Engine as _;
+use chromiumoxide::cache::dump_remote::{enqueue, init_remote_dump_worker, DumpJob};
 use chromiumoxide::cache::manager::{
     create_cache_key_raw, put_hybrid_cache, site_key_for_target_url,
 };
-use chromiumoxide::cache::dump_remote::{enqueue, init_remote_dump_worker, DumpJob};
 use chromiumoxide::cache::remote::{
     dump_to_remote_cache_parts, get_cache_site, get_session_cache_item, LOCAL_SESSION_CACHE,
 };
@@ -516,9 +516,13 @@ async fn test_binary_body_round_trip() {
 
     let session_key = format!("GET:{}", test_url);
     let cached = get_session_cache_item(&cache_site, &session_key);
-    assert!(cached.is_some(), "binary content should be in session cache");
+    assert!(
+        cached.is_some(),
+        "binary content should be in session cache"
+    );
     assert_eq!(
-        cached.unwrap().0.body, body,
+        cached.unwrap().0.body,
+        body,
         "binary body should survive base64 round-trip"
     );
 }
@@ -582,7 +586,8 @@ async fn test_dump_worker_queue_end_to_end() {
     let cached = get_session_cache_item(&cache_site, &session_key);
     assert!(cached.is_some(), "seeded entry should be in session cache");
     assert_eq!(
-        cached.unwrap().0.body, body,
+        cached.unwrap().0.body,
+        body,
         "worker → server → seed round-trip should preserve body"
     );
 }
@@ -715,10 +720,7 @@ async fn test_put_hybrid_cache_full_round_trip() {
         "body must survive dump → remote → seed"
     );
     assert_eq!(http_res.status, 200);
-    assert_eq!(
-        http_res.headers.get("content-type").unwrap(),
-        "text/html"
-    );
+    assert_eq!(http_res.headers.get("content-type").unwrap(), "text/html");
     assert_eq!(
         http_res.headers.get("x-custom").unwrap(),
         "preserved",

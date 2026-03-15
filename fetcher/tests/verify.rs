@@ -77,9 +77,7 @@ async fn verify_stable_channel_resolution() {
         .expect("Failed to parse JSON");
 
     assert!(
-        res["channels"]["Stable"]["version"]
-            .as_str()
-            .is_some(),
+        res["channels"]["Stable"]["version"].as_str().is_some(),
         "Stable channel version not found in API response"
     );
 }
@@ -95,8 +93,7 @@ fn find_revision_available() {
 
     'outer: for revision in (min..max).rev() {
         println!("Checking revision {}", revision);
-        let build_info =
-            chromiumoxide_fetcher::BuildInfo::revision(Revision::from(revision));
+        let build_info = chromiumoxide_fetcher::BuildInfo::revision(Revision::from(revision));
 
         for platform in Platform::all() {
             let url = kind.download_url(*platform, &build_info, &host);
