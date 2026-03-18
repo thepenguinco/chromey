@@ -161,7 +161,8 @@ impl<T: EventMessage> Connection<T> {
         Ok(id)
     }
 
-    /// Flush any processed messages and drain queued commands in a burst.
+    /// flush any processed message and start sending the next over the conn
+    /// sink
     fn start_send_next(&mut self, cx: &mut Context<'_>) -> Result<()> {
         if self.needs_flush {
             if let Poll::Ready(Ok(())) = self.ws.poll_flush_unpin(cx) {
@@ -169,21 +170,11 @@ impl<T: EventMessage> Connection<T> {
             }
         }
         if self.pending_flush.is_none() && !self.needs_flush {
-            // Drain as many queued commands as the sink will accept.
-            let mut sent_any = false;
-            while let Some(cmd) = self.pending_commands.pop_front() {
+            if let Some(cmd) = self.pending_commands.pop_front() {
                 tracing::trace!("Sending {:?}", cmd);
                 let msg = serde_json::to_string(&cmd)?;
                 self.ws.start_send_unpin(msg.into())?;
-                sent_any = true;
-                // Check if the sink is still ready for more.
-                if !self.ws.poll_ready_unpin(cx).is_ready() {
-                    self.pending_flush = Some(cmd);
-                    return Ok(());
-                }
-            }
-            if sent_any {
-                self.needs_flush = true;
+                self.pending_flush = Some(cmd);
             }
         }
         Ok(())
