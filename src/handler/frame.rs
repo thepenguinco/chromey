@@ -23,7 +23,7 @@ use spider_fingerprint::BASE_CHROME_VERSION;
 use crate::error::DeadlineExceeded;
 use crate::handler::domworld::DOMWorld;
 use crate::handler::http::HttpRequest;
-use crate::handler::REQUEST_TIMEOUT;
+
 use crate::{cmd::CommandChain, ArcHttpRequest};
 
 lazy_static::lazy_static! {
@@ -799,11 +799,11 @@ pub struct FrameRequestedNavigation {
 }
 
 impl FrameRequestedNavigation {
-    pub fn new(id: NavigationId, req: Request) -> Self {
+    pub fn new(id: NavigationId, req: Request, request_timeout: Duration) -> Self {
         Self {
             id,
             req,
-            timeout: Duration::from_millis(REQUEST_TIMEOUT),
+            timeout: request_timeout,
         }
     }
 
