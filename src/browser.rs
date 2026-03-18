@@ -154,7 +154,7 @@ impl Browser {
 
         let conn = Connection::<CdpEventMessage>::connect(&debug_ws_url).await?;
 
-        let (tx, rx) = channel(1000);
+        let (tx, rx) = channel(config.channel_capacity);
 
         let handler_config = BrowserConfig {
             ignore_https_errors: config.ignore_https_errors,
@@ -242,7 +242,7 @@ impl Browser {
         // Only infaillible calls are allowed after this point to avoid clean-up issues with the
         // child process.
 
-        let (tx, rx) = channel(1000);
+        let (tx, rx) = channel(config.channel_capacity);
 
         let handler_config = HandlerConfig {
             ignore_https_errors: config.ignore_https_errors,
@@ -265,6 +265,7 @@ impl Browser {
             max_bytes_allowed: config.max_bytes_allowed,
             whitelist_patterns: config.whitelist_patterns.clone(),
             blacklist_patterns: config.blacklist_patterns.clone(),
+            channel_capacity: config.channel_capacity,
         };
 
         let fut = Handler::new(conn, rx, handler_config);
@@ -869,6 +870,9 @@ pub struct BrowserConfig {
     pub whitelist_patterns: Option<Vec<String>>,
     /// Blacklist patterns to block through the network.
     pub blacklist_patterns: Option<Vec<String>>,
+    /// Capacity of the channel between browser handle and handler.
+    /// Defaults to 1000.
+    pub channel_capacity: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -936,6 +940,8 @@ pub struct BrowserConfigBuilder {
     whitelist_patterns: Option<Vec<String>>,
     /// Blacklist patterns to block through the network.
     blacklist_patterns: Option<Vec<String>>,
+    /// Capacity of the channel between browser handle and handler.
+    channel_capacity: usize,
 }
 
 impl BrowserConfig {
@@ -987,6 +993,7 @@ impl Default for BrowserConfigBuilder {
             max_bytes_allowed: None,
             whitelist_patterns: None,
             blacklist_patterns: None,
+            channel_capacity: 1000,
         }
     }
 }
@@ -1176,6 +1183,13 @@ impl BrowserConfigBuilder {
         self
     }
 
+    /// Set the capacity of the channel between browser handle and handler.
+    /// Defaults to 1000.
+    pub fn channel_capacity(mut self, capacity: usize) -> Self {
+        self.channel_capacity = capacity;
+        self
+    }
+
     /// Build the browser.
     pub fn build(self) -> std::result::Result<BrowserConfig, String> {
         let executable = if let Some(e) = self.executable {
@@ -1215,6 +1229,7 @@ impl BrowserConfigBuilder {
             max_bytes_allowed: self.max_bytes_allowed,
             whitelist_patterns: self.whitelist_patterns,
             blacklist_patterns: self.blacklist_patterns,
+            channel_capacity: self.channel_capacity,
         })
     }
 }

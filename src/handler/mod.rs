@@ -535,12 +535,17 @@ impl Handler {
     /// Remove all commands where `now` > `timestamp of command starting point +
     /// request timeout` and notify the senders that their request timed out.
     fn evict_timed_out_commands(&mut self, now: Instant) {
-        let timed_out = self
+        let deadline = match now.checked_sub(self.config.request_timeout) {
+            Some(d) => d,
+            None => return,
+        };
+
+        let timed_out: Vec<_> = self
             .pending_commands
             .iter()
-            .filter(|(_, (_, _, timestamp))| now > (*timestamp + self.config.request_timeout))
+            .filter(|(_, (_, _, timestamp))| *timestamp < deadline)
             .map(|(k, _)| *k)
-            .collect::<Vec<_>>();
+            .collect();
 
         for call in timed_out {
             if let Some((req, _, _)) = self.pending_commands.remove(&call) {
@@ -799,6 +804,9 @@ pub struct HandlerConfig {
     pub whitelist_patterns: Option<Vec<String>>,
     /// Optional per-run/per-site blacklist of URL substrings (scripts/resources).
     pub blacklist_patterns: Option<Vec<String>>,
+    /// Capacity of the channel between browser handle and handler.
+    /// Defaults to 1000.
+    pub channel_capacity: usize,
 }
 
 impl Default for HandlerConfig {
@@ -824,6 +832,7 @@ impl Default for HandlerConfig {
             max_bytes_allowed: None,
             whitelist_patterns: None,
             blacklist_patterns: None,
+            channel_capacity: 1000,
         }
     }
 }

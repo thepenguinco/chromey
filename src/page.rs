@@ -1297,7 +1297,10 @@ impl Page {
     /// Execute a xpath selector on the document's node.
     pub async fn find_xpath(&self, selector: impl Into<String>) -> Result<Element> {
         self.get_document().await?;
-        let node_id = self.inner.find_xpaths(selector).await?[0];
+        let node_ids = self.inner.find_xpaths(selector).await?;
+        let node_id = *node_ids
+            .first()
+            .ok_or(CdpError::msg("No element found matching the given xpath selector"))?;
         Element::new(Arc::clone(&self.inner), node_id).await
     }
 

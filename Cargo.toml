@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.41.1"
+version = "2.42.0"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -134,6 +134,10 @@ _fetcher-native-tokio = [
     "fetcher",
     "spider_chromiumoxide_fetcher/_native-tokio",
 ]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
 
 [[example]]
 name = "wiki-tokio"

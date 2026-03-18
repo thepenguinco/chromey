@@ -454,8 +454,8 @@ impl NetworkManager {
             return;
         }
 
-        let refs: Vec<&str> = self.blacklist_patterns.iter().map(|s| s.as_str()).collect();
-        self.blacklist_matcher = AhoCorasick::new(refs).ok();
+        self.blacklist_matcher =
+            AhoCorasick::new(self.blacklist_patterns.iter().map(|s| s.as_str())).ok();
     }
 
     #[inline]
@@ -490,10 +490,9 @@ impl NetworkManager {
             return;
         }
 
-        let refs: Vec<&str> = self.whitelist_patterns.iter().map(|s| s.as_str()).collect();
-
         // If building fails (shouldn’t for simple patterns), just disable matcher.
-        self.whitelist_matcher = AhoCorasick::new(refs).ok();
+        self.whitelist_matcher =
+            AhoCorasick::new(self.whitelist_patterns.iter().map(|s| s.as_str())).ok();
     }
 
     #[inline]

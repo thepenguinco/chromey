@@ -6,7 +6,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::input::{
 };
 use chromiumoxide_cdp::cdp::browser_protocol::page::Viewport;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct Point {
     /// The horizontal (X) coordinate.
     pub x: f64,
@@ -97,7 +97,7 @@ pub enum ScrollBehavior {
     Smooth,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct ElementQuad {
     pub top_left: Point,
     pub top_right: Point,
@@ -107,8 +107,11 @@ pub struct ElementQuad {
 
 impl ElementQuad {
     pub fn from_quad(quad: &Quad) -> Self {
-        assert_eq!(quad.inner().len(), 8);
         let raw_quad = quad.inner();
+        debug_assert_eq!(raw_quad.len(), 8);
+        if raw_quad.len() < 8 {
+            return Self::default();
+        }
         Self {
             top_left: Point {
                 x: raw_quad[0],
