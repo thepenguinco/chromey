@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn attach_to_target_response_sets_session_id_before_event_arrives() {
         let info = TargetInfo::builder()
-            .target_id("target-1")
+            .target_id("target-1".to_string())
             .r#type("page")
             .title("")
             .url("about:blank")
@@ -925,11 +925,11 @@ mod tests {
             .build()
             .expect("target info");
         let mut target = Target::new(info, TargetConfig::default(), BrowserContext::default());
-        let method = AttachToTargetParams::IDENTIFIER.into();
+        let method: MethodId = AttachToTargetParams::IDENTIFIER.into();
         let result =
-            serde_json::to_value(AttachToTargetReturns::new("session-1")).expect("attach result");
+            serde_json::to_value(AttachToTargetReturns::new("session-1".to_string())).expect("attach result");
         let resp = Response {
-            id: 1,
+            id: CallId::new(1),
             result: Some(result),
             error: None,
         };
