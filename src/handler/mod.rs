@@ -112,6 +112,16 @@ lazy_static::lazy_static! {
     };
 }
 
+fn maybe_store_attach_session_id(target: &mut Target, method: &MethodId, resp: &Response) {
+    if method.as_ref() != AttachToTargetParams::IDENTIFIER {
+        return;
+    }
+
+    if let Ok(resp) = to_command_response::<AttachToTargetParams>(resp.clone(), method.clone()) {
+        target.set_session_id(resp.result.session_id);
+    }
+}
+
 impl Handler {
     /// Create a new `Handler` that drives the connection and listens for
     /// messages on the receiver `rx`.
@@ -265,6 +275,7 @@ impl Handler {
                 }
                 PendingRequest::InternalCommand(target_id) => {
                     if let Some(target) = self.targets.get_mut(&target_id) {
+                        maybe_store_attach_session_id(target, &method, &resp);
                         target.on_response(resp, method.as_ref());
                     }
                 }
@@ -895,4 +906,40 @@ pub(crate) enum HandlerMessage {
     GetPage(TargetId, OneshotSender<Option<Page>>),
     AddEventListener(EventListenerRequest),
     CloseBrowser(OneshotSender<Result<CloseReturns>>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chromiumoxide_cdp::cdp::browser_protocol::target::{AttachToTargetReturns, TargetInfo};
+
+    #[test]
+    fn attach_to_target_response_sets_session_id_before_event_arrives() {
+        let info = TargetInfo::builder()
+            .target_id("target-1")
+            .r#type("page")
+            .title("")
+            .url("about:blank")
+            .attached(false)
+            .can_access_opener(false)
+            .build()
+            .expect("target info");
+        let mut target = Target::new(info, TargetConfig::default(), BrowserContext::default());
+        let method = AttachToTargetParams::IDENTIFIER.into();
+        let result =
+            serde_json::to_value(AttachToTargetReturns::new("session-1")).expect("attach result");
+        let resp = Response {
+            id: 1,
+            result: Some(result),
+            error: None,
+        };
+
+        maybe_store_attach_session_id(&mut target, &method, &resp);
+
+        assert_eq!(
+            target.session_id().map(AsRef::as_ref),
+            Some("session-1"),
+            "attach response should seed the flat session id even before Target.attachedToTarget"
+        );
+    }
 }
