@@ -323,11 +323,7 @@ impl FrameManager {
         watcher.expected_lifecycle.iter().all(|ev| {
             frame.lifecycle_events.contains(ev)
                 || (frame.url.is_none() && frame.lifecycle_events.contains("DOMContentLoaded"))
-        }) && frame
-            .child_frames
-            .iter()
-            .filter_map(|f| self.frames.get(f))
-            .all(|f| self.check_lifecycle(watcher, f))
+        })
     }
 
     fn check_lifecycle_complete(
@@ -874,5 +870,47 @@ mod tests {
 
         frame.on_loading_stopped();
         assert!(frame.is_loaded());
+    }
+
+    #[test]
+    fn navigation_completes_when_main_frame_loaded_despite_child_frames() {
+        let timeout = Duration::from_secs(30);
+        let mut fm = FrameManager::new(timeout);
+
+        // Set up main frame with "load" lifecycle event.
+        let main_id = FrameId::new("main");
+        let mut main_frame = Frame::new(main_id.clone());
+        main_frame.loader_id = Some(LoaderId::from("loader-old".to_string()));
+        main_frame.lifecycle_events.insert("load".into());
+        fm.frames.insert(main_id.clone(), main_frame);
+        fm.main_frame = Some(main_id.clone());
+
+        // Attach a child frame that has NOT received "load" (e.g. a stuck ad iframe).
+        let child_id = FrameId::new("child-ad");
+        let child = Frame::with_parent(
+            child_id.clone(),
+            fm.frames.get_mut(&main_id).unwrap(),
+        );
+        fm.frames.insert(child_id, child);
+
+        // Build a watcher that waits for "load" on the main frame.
+        let watcher = NavigationWatcher::until_load(
+            NavigationId(0),
+            main_id.clone(),
+            Some(LoaderId::from("loader-old".to_string())),
+        );
+
+        // Simulate a new loader (navigation happened).
+        fm.frames.get_mut(&main_id).unwrap().loader_id =
+            Some(LoaderId::from("loader-new".to_string()));
+
+        // Navigation should complete because main frame has "load",
+        // even though the child frame does not.
+        let main_frame = fm.frames.get(&main_id).unwrap();
+        let result = fm.check_lifecycle_complete(&watcher, main_frame);
+        assert!(
+            result.is_some(),
+            "navigation should complete without waiting for child frames"
+        );
     }
 }
