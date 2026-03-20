@@ -4,7 +4,7 @@ use super::blockers::{
     block_websites::block_xhr, ignore_script_embedded, ignore_script_xhr, ignore_script_xhr_media,
     xhr::IGNORE_XHR_ASSETS,
 };
-use crate::auth::Credentials;
+use crate::auth::{AuthScope, Credentials};
 #[cfg(feature = "_cache")]
 use crate::cache::BasicCachePolicy;
 use crate::cmd::CommandChain;
@@ -21,8 +21,9 @@ use chromiumoxide_cdp::cdp::browser_protocol::network::{
 };
 use chromiumoxide_cdp::cdp::browser_protocol::{
     fetch::{
-        self, AuthChallengeResponse, AuthChallengeResponseResponse, ContinueRequestParams,
-        ContinueWithAuthParams, DisableParams, EventAuthRequired, EventRequestPaused,
+        self, AuthChallengeResponse, AuthChallengeResponseResponse, AuthChallengeSource,
+        ContinueRequestParams, ContinueWithAuthParams, DisableParams, EventAuthRequired,
+        EventRequestPaused,
     },
     network::SetBypassServiceWorkerParams,
 };
@@ -285,6 +286,8 @@ pub struct NetworkManager {
     /// When set, the manager will answer challenges with `ProvideCredentials` once per request
     /// (guarded by `attempted_authentications`), otherwise it falls back to default handling.
     credentials: Option<Credentials>,
+    /// Which auth challenges the stored credentials should respond to.
+    auth_scope: AuthScope,
     /// User-facing toggle indicating whether request interception is desired.
     ///
     /// This is the “intent” flag controlled by `set_request_interception()`. On its own it does
@@ -370,6 +373,7 @@ impl NetworkManager {
             user_cache_disabled: false,
             attempted_authentications: Default::default(),
             credentials: None,
+            auth_scope: AuthScope::Any,
             block_all: false,
             user_request_interception_enabled: false,
             protocol_request_interception_enabled: false,
@@ -591,8 +595,9 @@ impl NetworkManager {
         self.push_cdp_request(SetCacheDisabledParams::new(self.user_cache_disabled));
     }
 
-    pub fn authenticate(&mut self, credentials: Credentials) {
+    pub fn authenticate(&mut self, credentials: Credentials, scope: AuthScope) {
         self.credentials = Some(credentials);
+        self.auth_scope = scope;
         self.update_protocol_request_interception();
         self.protocol_request_interception_enabled = true;
     }
@@ -1196,23 +1201,38 @@ impl NetworkManager {
     }
 
     pub fn on_fetch_auth_required(&mut self, event: &EventAuthRequired) {
+        let challenge_is_proxy = event.auth_challenge.source == Some(AuthChallengeSource::Proxy);
+
         let response = if self
             .attempted_authentications
             .contains(event.request_id.as_ref())
         {
             AuthChallengeResponseResponse::CancelAuth
         } else if self.credentials.is_some() {
-            self.attempted_authentications
-                .insert(event.request_id.clone().into());
-            AuthChallengeResponseResponse::ProvideCredentials
+            let scope_matches = match self.auth_scope {
+                AuthScope::Any => true,
+                AuthScope::Proxy => challenge_is_proxy,
+                AuthScope::Server => !challenge_is_proxy,
+            };
+
+            if scope_matches {
+                self.attempted_authentications
+                    .insert(event.request_id.clone().into());
+                AuthChallengeResponseResponse::ProvideCredentials
+            } else {
+                AuthChallengeResponseResponse::Default
+            }
         } else {
             AuthChallengeResponseResponse::Default
         };
 
+        let provide = response == AuthChallengeResponseResponse::ProvideCredentials;
         let mut auth = AuthChallengeResponse::new(response);
-        if let Some(creds) = self.credentials.clone() {
-            auth.username = Some(creds.username);
-            auth.password = Some(creds.password);
+        if provide {
+            if let Some(creds) = self.credentials.clone() {
+                auth.username = Some(creds.username);
+                auth.password = Some(creds.password);
+            }
         }
         self.push_cdp_request(ContinueWithAuthParams::new(event.request_id.clone(), auth));
     }

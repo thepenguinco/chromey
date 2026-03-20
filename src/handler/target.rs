@@ -754,15 +754,18 @@ impl Target {
                             }
                         }
                         TargetMessage::Authenticate(credentials) => {
-                            self.network_manager.authenticate(credentials);
+                            self.network_manager.authenticate(credentials, crate::auth::AuthScope::Any);
+                        }
+                        TargetMessage::AuthenticateProxy(credentials) => {
+                            self.network_manager.authenticate(credentials, crate::auth::AuthScope::Proxy);
                         }
                         TargetMessage::BlockNetwork(blocked) => {
                             self.network_manager.set_block_all(blocked);
                         }
                         TargetMessage::EnableInterception(enabled) => {
-                            // if interception is enabled disable the user facing handling.
-                            self.network_manager.user_request_interception_enabled = !enabled;
+                            self.network_manager.set_request_interception(enabled);
                         }
+
                     }
                 }
             }
@@ -1078,6 +1081,8 @@ pub enum TargetMessage {
     /// Get the `ExecutionContext` if available
     GetExecutionContext(GetExecutionContext),
     Authenticate(Credentials),
+    /// Set credentials scoped only to proxy (407) challenges.
+    AuthenticateProxy(Credentials),
     /// Set block/unblocked networking
     BlockNetwork(bool),
     /// Enable/Disable internal request paused interception

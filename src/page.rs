@@ -1012,6 +1012,20 @@ impl Page {
         Ok(())
     }
 
+    /// Set credentials that only respond to proxy authentication challenges (407).
+    ///
+    /// Unlike [`authenticate`](Self::authenticate), this will *not* answer
+    /// server-level 401 challenges — only proxy 407s.
+    pub async fn authenticate_proxy(&self, credentials: Credentials) -> Result<()> {
+        self.inner
+            .sender()
+            .clone()
+            .send(TargetMessage::AuthenticateProxy(credentials))
+            .await?;
+
+        Ok(())
+    }
+
     /// Control blocking network on continue fetch request paused.
     pub async fn set_blocked_networking(&self, blocked: bool) -> Result<()> {
         self.inner
@@ -1023,7 +1037,15 @@ impl Page {
         Ok(())
     }
 
-    /// Set the internal paused fetch interception control. Use this if you manually set your own listeners.
+    /// Enable or disable user-controlled request interception.
+    ///
+    /// When `true`, the internal request handler (ad blocking, script filtering, etc.)
+    /// is bypassed and `Fetch.requestPaused` events are left for your
+    /// `EventRequestPaused` listener to handle. **You** must call
+    /// `Fetch.continueRequest`, `Fetch.fulfillRequest`, or `Fetch.failRequest`
+    /// for every paused request, otherwise they will hang.
+    ///
+    /// When `false` (default), the internal handler manages all requests.
     pub async fn set_request_interception(&self, enabled: bool) -> Result<()> {
         self.inner
             .sender()
