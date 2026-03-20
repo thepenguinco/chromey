@@ -807,6 +807,9 @@ pub struct HandlerConfig {
     /// Capacity of the channel between browser handle and handler.
     /// Defaults to 1000.
     pub channel_capacity: usize,
+    /// Number of WebSocket connection retry attempts with exponential backoff.
+    /// Defaults to 4.
+    pub connection_retries: u32,
 }
 
 impl Default for HandlerConfig {
@@ -833,6 +836,7 @@ impl Default for HandlerConfig {
             whitelist_patterns: None,
             blacklist_patterns: None,
             channel_capacity: 1000,
+            connection_retries: crate::conn::DEFAULT_CONNECTION_RETRIES,
         }
     }
 }

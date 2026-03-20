@@ -47,8 +47,21 @@ lazy_static::lazy_static! {
     };
 }
 
+/// Default number of WebSocket connection retry attempts.
+pub const DEFAULT_CONNECTION_RETRIES: u32 = 4;
+
+/// Initial backoff delay between connection retries (in milliseconds).
+const INITIAL_BACKOFF_MS: u64 = 50;
+
 impl<T: EventMessage + Unpin> Connection<T> {
     pub async fn connect(debug_ws_url: impl AsRef<str>) -> Result<Self> {
+        Self::connect_with_retries(debug_ws_url, DEFAULT_CONNECTION_RETRIES).await
+    }
+
+    pub async fn connect_with_retries(
+        debug_ws_url: impl AsRef<str>,
+        retries: u32,
+    ) -> Result<Self> {
         let mut config = WebSocketConfig::default();
 
         if !*WEBSOCKET_DEFAULTS {
@@ -56,19 +69,38 @@ impl<T: EventMessage + Unpin> Connection<T> {
             config.max_frame_size = None;
         }
 
-        let ws = if crate::uring_fs::is_enabled() {
-            Self::connect_uring(debug_ws_url.as_ref(), config).await?
-        } else {
-            Self::connect_default(debug_ws_url.as_ref(), config).await?
-        };
+        let url = debug_ws_url.as_ref();
+        let use_uring = crate::uring_fs::is_enabled();
+        let mut last_err = None;
 
-        Ok(Self {
-            pending_commands: Default::default(),
-            ws,
-            next_id: 0,
-            needs_flush: false,
-            _marker: Default::default(),
-        })
+        for attempt in 0..=retries {
+            let result = if use_uring {
+                Self::connect_uring(url, config).await
+            } else {
+                Self::connect_default(url, config).await
+            };
+
+            match result {
+                Ok(ws) => {
+                    return Ok(Self {
+                        pending_commands: Default::default(),
+                        ws,
+                        next_id: 0,
+                        needs_flush: false,
+                        _marker: Default::default(),
+                    });
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < retries {
+                        let backoff_ms = INITIAL_BACKOFF_MS * 3u64.saturating_pow(attempt);
+                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| CdpError::msg("connection failed")))
     }
 
     /// Default path: let tokio-tungstenite handle TCP connect + WS handshake.

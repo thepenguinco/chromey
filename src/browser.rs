@@ -118,41 +118,54 @@ impl Browser {
         config: HandlerConfig,
     ) -> Result<(Self, Handler)> {
         let mut debug_ws_url = url.into();
+        let retries = config.connection_retries;
 
         if debug_ws_url.starts_with("http") {
-            match REQUEST_CLIENT
-                .get(
-                    if debug_ws_url.ends_with("/json/version")
-                        || debug_ws_url.ends_with("/json/version/")
-                    {
-                        debug_ws_url.to_owned()
-                    } else {
-                        format!(
-                            "{}{}json/version",
-                            &debug_ws_url,
-                            if debug_ws_url.ends_with('/') { "" } else { "/" }
-                        )
-                    },
-                )
-                .send()
-                .await
+            let version_url = if debug_ws_url.ends_with("/json/version")
+                || debug_ws_url.ends_with("/json/version/")
             {
-                Ok(req) => {
-                    if let Ok(b) = req.bytes().await {
-                        if let Ok(connection) =
-                            crate::serde_json::from_slice::<Box<BrowserConnection>>(&b)
-                        {
-                            if !connection.web_socket_debugger_url.is_empty() {
-                                debug_ws_url = connection.web_socket_debugger_url;
+                debug_ws_url.to_owned()
+            } else {
+                format!(
+                    "{}{}json/version",
+                    &debug_ws_url,
+                    if debug_ws_url.ends_with('/') { "" } else { "/" }
+                )
+            };
+
+            let mut discovered = false;
+
+            for attempt in 0..=retries {
+                match REQUEST_CLIENT.get(&version_url).send().await {
+                    Ok(req) => {
+                        if let Ok(b) = req.bytes().await {
+                            if let Ok(connection) =
+                                crate::serde_json::from_slice::<Box<BrowserConnection>>(&b)
+                            {
+                                if !connection.web_socket_debugger_url.is_empty() {
+                                    debug_ws_url = connection.web_socket_debugger_url;
+                                }
                             }
+                        }
+                        discovered = true;
+                        break;
+                    }
+                    Err(_) => {
+                        if attempt < retries {
+                            let backoff_ms = 50u64 * 3u64.saturating_pow(attempt);
+                            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                         }
                     }
                 }
-                Err(_) => return Err(CdpError::NoResponse),
+            }
+
+            if !discovered {
+                return Err(CdpError::NoResponse);
             }
         }
 
-        let conn = Connection::<CdpEventMessage>::connect(&debug_ws_url).await?;
+        let conn =
+            Connection::<CdpEventMessage>::connect_with_retries(&debug_ws_url, retries).await?;
 
         let (tx, rx) = channel(config.channel_capacity);
 
@@ -220,7 +233,11 @@ impl Browser {
 
             // extract the ws:
             let debug_ws_url = ws_url_from_output(child, timeout_fut).await?;
-            let conn = Connection::<CdpEventMessage>::connect(&debug_ws_url).await?;
+            let conn = Connection::<CdpEventMessage>::connect_with_retries(
+                &debug_ws_url,
+                config.connection_retries,
+            )
+            .await?;
             Ok((debug_ws_url, conn))
         }
 
@@ -266,6 +283,7 @@ impl Browser {
             whitelist_patterns: config.whitelist_patterns.clone(),
             blacklist_patterns: config.blacklist_patterns.clone(),
             channel_capacity: config.channel_capacity,
+            connection_retries: config.connection_retries,
         };
 
         let fut = Handler::new(conn, rx, handler_config);
@@ -873,6 +891,9 @@ pub struct BrowserConfig {
     /// Capacity of the channel between browser handle and handler.
     /// Defaults to 1000.
     pub channel_capacity: usize,
+    /// Number of WebSocket connection retry attempts with exponential backoff.
+    /// Defaults to 4.
+    pub connection_retries: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -942,6 +963,8 @@ pub struct BrowserConfigBuilder {
     blacklist_patterns: Option<Vec<String>>,
     /// Capacity of the channel between browser handle and handler.
     channel_capacity: usize,
+    /// Number of WebSocket connection retry attempts.
+    connection_retries: u32,
 }
 
 impl BrowserConfig {
@@ -994,6 +1017,7 @@ impl Default for BrowserConfigBuilder {
             whitelist_patterns: None,
             blacklist_patterns: None,
             channel_capacity: 1000,
+            connection_retries: crate::conn::DEFAULT_CONNECTION_RETRIES,
         }
     }
 }
@@ -1190,6 +1214,13 @@ impl BrowserConfigBuilder {
         self
     }
 
+    /// Set the number of WebSocket connection retry attempts with exponential backoff.
+    /// Defaults to 4. Set to 0 for a single attempt with no retries.
+    pub fn connection_retries(mut self, retries: u32) -> Self {
+        self.connection_retries = retries;
+        self
+    }
+
     /// Build the browser.
     pub fn build(self) -> std::result::Result<BrowserConfig, String> {
         let executable = if let Some(e) = self.executable {
@@ -1230,6 +1261,7 @@ impl BrowserConfigBuilder {
             whitelist_patterns: self.whitelist_patterns,
             blacklist_patterns: self.blacklist_patterns,
             channel_capacity: self.channel_capacity,
+            connection_retries: self.connection_retries,
         })
     }
 }
