@@ -6,7 +6,7 @@
 //! starts from where the cursor actually is.
 
 use crate::layout::Point;
-use rand::Rng;
+use rand::RngExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 

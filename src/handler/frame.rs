@@ -33,7 +33,7 @@ lazy_static::lazy_static! {
 
 /// Generate a collision-resistant world name using `id` + randomness.
 pub fn random_world_name(id: &str) -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     let rand_len = rng.random_range(6..=12);
 
@@ -456,9 +456,10 @@ impl FrameManager {
                 self.frames.insert(id, f);
             }
         } else {
-            let mut f = if let Some(main) = self.main_frame.take() {
+            let old_main = self.main_frame.take();
+            let mut f = if let Some(main) = old_main.as_ref() {
                 // update main frame
-                if let Some(mut main_frame) = self.frames.remove(&main) {
+                if let Some(mut main_frame) = self.frames.remove(main) {
                     for child in &main_frame.child_frames {
                         self.remove_frames_recursively(child);
                     }
@@ -474,8 +475,19 @@ impl FrameManager {
                 Frame::new(frame.id.clone())
             };
             f.navigated(frame);
-            self.main_frame = Some(f.id.clone());
-            self.frames.insert(f.id.clone(), f);
+            let new_id = f.id.clone();
+            self.main_frame = Some(new_id.clone());
+            self.frames.insert(new_id.clone(), f);
+
+            // When the main frame ID changes (e.g. cross-origin redirect), update the
+            // active navigation watcher so it tracks the new frame instead of the stale ID.
+            if old_main.as_ref() != Some(&new_id) {
+                if let Some((watcher, _)) = self.navigation.as_mut() {
+                    if old_main.as_ref() == Some(&watcher.frame_id) {
+                        watcher.frame_id = new_id;
+                    }
+                }
+            }
         }
     }
 
@@ -911,6 +923,69 @@ mod tests {
         assert!(
             result.is_some(),
             "navigation should complete without waiting for child frames"
+        );
+    }
+
+    #[test]
+    fn navigation_watcher_tracks_main_frame_id_change() {
+        let timeout = Duration::from_secs(30);
+        let mut fm = FrameManager::new(timeout);
+
+        // Set up main frame with old ID.
+        let old_id = FrameId::new("old-main");
+        let mut main_frame = Frame::new(old_id.clone());
+        main_frame.loader_id = Some(LoaderId::from("loader-1".to_string()));
+        fm.frames.insert(old_id.clone(), main_frame);
+        fm.main_frame = Some(old_id.clone());
+
+        // Manually insert a navigation watcher referencing the old frame ID
+        // (simulates what navigate_frame does after queuing a request).
+        let watcher = NavigationWatcher::until_load(
+            NavigationId(0),
+            old_id.clone(),
+            Some(LoaderId::from("loader-1".to_string())),
+        );
+        let deadline = Instant::now() + timeout;
+        fm.navigation = Some((watcher, deadline));
+
+        // Simulate cross-origin redirect: main frame ID changes.
+        // Directly manipulate the frame map to simulate on_frame_navigated
+        // with a new main frame ID (avoids constructing the full CdpFrame).
+        let new_id = FrameId::new("new-main");
+        if let Some(mut old_frame) = fm.frames.remove(&old_id) {
+            old_frame.child_frames.clear();
+            old_frame.id = new_id.clone();
+            fm.frames.insert(new_id.clone(), old_frame);
+        }
+        fm.main_frame = Some(new_id.clone());
+
+        // Update the watcher the same way on_frame_navigated does.
+        if let Some((watcher, _)) = fm.navigation.as_mut() {
+            if watcher.frame_id == old_id {
+                watcher.frame_id = new_id.clone();
+            }
+        }
+
+        // The active watcher should now track the new frame ID.
+        let (watcher, _) = fm.navigation.as_ref().unwrap();
+        assert_eq!(
+            watcher.frame_id, new_id,
+            "watcher should follow the main frame ID change"
+        );
+
+        // Simulate lifecycle events on the new frame so navigation completes.
+        fm.frames.get_mut(&new_id).unwrap().loader_id =
+            Some(LoaderId::from("loader-2".to_string()));
+        fm.frames
+            .get_mut(&new_id)
+            .unwrap()
+            .lifecycle_events
+            .insert("load".into());
+
+        let event = fm.poll(Instant::now());
+        assert!(
+            matches!(event, Some(FrameEvent::NavigationResult(Ok(_)))),
+            "navigation should complete on the new frame"
         );
     }
 }

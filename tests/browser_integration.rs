@@ -345,3 +345,51 @@ async fn browser_like_about_blank_survives_tokio_churn() {
         let _ = handle.await;
     }
 }
+
+/// Navigate to a real-world URL that may involve cross-origin redirects
+/// (e.g. adding `www.` prefix or CDN routing). This exercises the fix for
+/// navigation watchers losing track of the main frame when its ID changes
+/// during a cross-origin redirect.
+#[tokio::test]
+async fn goto_cross_origin_redirect_url_loads() {
+    if try_browser_config().is_none() {
+        eprintln!("skipping: no Chrome/Chromium executable found");
+        return;
+    }
+
+    let browser = launch_with_handler(browser_like_config("cross-origin-redirect")).await;
+
+    let page = timeout(Duration::from_secs(30), browser.new_page("about:blank"))
+        .await
+        .expect("new_page should not time out")
+        .expect("new_page should resolve");
+
+    // Navigate to a real page that is known to redirect (clickz.com article).
+    let target_url = "https://clickz.com/the-tiktok-perfume-effect-what-moroccanoils-measurement-gap-tells-every-senior-marketer";
+    let result = timeout(Duration::from_secs(60), page.goto(target_url)).await;
+
+    match result {
+        Ok(Ok(_)) => {
+            let url = page.url().await.expect("url()");
+            eprintln!("navigated to: {url:?}");
+            assert!(url.is_some(), "page should have a URL after navigation");
+
+            // Verify we can actually extract HTML content from the page.
+            let html = timeout(Duration::from_secs(15), page.content())
+                .await
+                .expect("content() should not time out")
+                .expect("content() should succeed");
+            assert!(
+                !html.is_empty(),
+                "page HTML should not be empty after navigation"
+            );
+            eprintln!("got {} bytes of HTML", html.len());
+        }
+        Ok(Err(err)) => {
+            panic!("goto failed: {err}");
+        }
+        Err(_) => {
+            panic!("goto timed out after 60s — navigation likely hung due to frame ID mismatch");
+        }
+    }
+}
