@@ -303,31 +303,36 @@ pub async fn put_hybrid_cache(
         return;
     }
 
-    // We need to do everything that only borrows `http_response` *before*
-    // we move it into CACACHE_MANAGER::put.
+    // Compute all derived values while borrowing http_response, then move
+    // fields into their final owners to avoid cloning headers and body.
     if let Ok(u) = http_response.url.as_str().parse::<http::uri::Uri>() {
         let req = HttpRequestLike {
             uri: u,
             method: http::method::Method::from_bytes(method.as_bytes())
                 .unwrap_or(http::method::Method::GET),
-            headers: convert_headers(&http_response.headers),
+            headers: convert_headers(&http_request_headers),
         };
 
         let res = HttpResponseLike {
             status: StatusCode::from_u16(http_response.status)
                 .unwrap_or(StatusCode::EXPECTATION_FAILED),
-            headers: convert_headers(&http_request_headers),
+            headers: convert_headers(&http_response.headers),
         };
 
         let policy = CachePolicy::new(&req, &res);
 
         tracing::debug!("Storing cache {:?}", http_response.url.as_str());
 
+        // Pre-compute values that borrow http_response before we move fields out.
+        let multi_headers = crate::http::headers_to_multi(&http_response.headers);
+        let session_key = format!("{}:{}", method, http_response.url);
+        let status = http_response.status;
+        let version = http_response.version;
+
+        // Determine whether we need a DumpJob (and thus must clone the body).
+        let mut need_dump = false;
+
         if dump_remote.is_some() {
-            // Check whether a fresh (non-stale) entry already exists in the
-            // local cache.  If it does we can skip the remote dump.  In every
-            // other case — no entry, stale entry, lookup error, or timeout —
-            // we proceed with the dump.
             let result = tokio::time::timeout(std::time::Duration::from_millis(250), async {
                 CACACHE_MANAGER.get(&cache_key).await
             })
@@ -339,57 +344,60 @@ pub async fn put_hybrid_cache(
             );
 
             if !already_fresh {
-                let url = http_response.url.to_string();
-                let method = method.to_string();
-                let current_url = format!("{}:{}", &method, &url);
                 let cached =
-                    crate::cache::remote::check_session_cache_item(cache_site, &current_url);
-
-                // insert the item into the cache.
-                if !cached {
-                    let job = super::dump_remote::DumpJob {
-                        cache_key: cache_key.to_string(),
-                        cache_site: cache_site.to_string(),
-                        url: url,
-                        method: method,
-                        status: http_response.status,
-                        request_headers: http_request_headers.clone(),
-                        response_headers: http_response.headers.clone(),
-                        body: http_response.body.clone(),
-                        http_version: http_response.version.clone(),
-                        dump_remote: dump_remote.map(|s| s.to_string()),
-                    };
-
-                    if super::dump_remote::worke_inited() {
-                        if !super::dump_remote::try_enqueue(job) {
-                            tracing::debug!(
-                                "remote dump skipped (worker not initialized or queue full)"
-                            );
-                        }
-                    } else {
-                        if let Err(err) = super::dump_remote::enqueue(job).await {
-                            tracing::debug!(
-                                "remote dump skipped (worker not initialized or queue full) - {:?}",
-                                err
-                            );
-                        }
-                    }
-                }
+                    crate::cache::remote::check_session_cache_item(cache_site, &session_key);
+                need_dump = !cached;
             }
         }
 
-        // Build the http_cache_reqwest response for both local cache and session cache.
-        let session_key = format!("{}:{}", method, http_response.url);
+        // When a dump is needed, clone the body once before moving it into
+        // cached_response. The header HashMaps are moved (not cloned) into DumpJob.
+        let dump_body = if need_dump {
+            Some(http_response.body.clone())
+        } else {
+            None
+        };
+
+        // Build cached_response, moving url, body, and using pre-computed multi_headers.
         let cached_response = http_cache_reqwest::HttpResponse {
             url: http_response.url,
             body: http_response.body,
-            headers: http_cache::HttpHeaders::Modern(crate::http::headers_to_multi(
-                &http_response.headers,
-            )),
-            version: http_response.version.into(),
-            status: http_response.status,
+            headers: http_cache::HttpHeaders::Modern(multi_headers),
+            version: version.into(),
+            status,
             metadata: None,
         };
+
+        // Enqueue the remote dump job, moving (not cloning) the header HashMaps.
+        if let Some(body) = dump_body {
+            let job = super::dump_remote::DumpJob {
+                cache_key: cache_key.to_string(),
+                cache_site: cache_site.to_string(),
+                url: cached_response.url.to_string(),
+                method: method.to_string(),
+                status,
+                request_headers: http_request_headers,
+                response_headers: http_response.headers,
+                body,
+                http_version: version,
+                dump_remote: dump_remote.map(|s| s.to_string()),
+            };
+
+            if super::dump_remote::worke_inited() {
+                if !super::dump_remote::try_enqueue(job) {
+                    tracing::debug!(
+                        "remote dump skipped (worker not initialized or queue full)"
+                    );
+                }
+            } else {
+                if let Err(err) = super::dump_remote::enqueue(job).await {
+                    tracing::debug!(
+                        "remote dump skipped (worker not initialized or queue full) - {:?}",
+                        err
+                    );
+                }
+            }
+        }
 
         // Populate the session cache so the handler-level interceptor can
         // serve this resource on subsequent requests in the same session.

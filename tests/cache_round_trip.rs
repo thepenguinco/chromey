@@ -592,6 +592,113 @@ async fn test_dump_worker_queue_end_to_end() {
     );
 }
 
+/// Regression test: CachePolicy must use request headers for the request and
+/// response headers for the response (not swapped).  Validates that
+/// `Cache-Control: max-age=3600` on the *response* is correctly interpreted,
+/// producing a non-stale policy.
+#[tokio::test]
+async fn test_cache_policy_uses_correct_headers() {
+    use chromiumoxide::cache::manager::put_hybrid_cache;
+    use chromiumoxide::cache::remote::{
+        dump_to_remote_cache_parts, get_session_cache_item, LOCAL_SESSION_CACHE,
+    };
+    use chromiumoxide::http::HttpResponse;
+
+    let (base_url, store, _handle) = start_mock_server().await;
+
+    let test_url = "https://policy-header-test.example.com/page";
+    let cache_key = create_cache_key_raw(test_url, Some("GET"), None);
+    let cache_site = site_key_for_target_url(test_url, None);
+
+    let body = b"<html><body>Cache-Control test</body></html>".to_vec();
+
+    // Response headers include cache-control — this must end up on the
+    // *response* side of the CachePolicy, not the request side.
+    let mut response_headers = HashMap::new();
+    response_headers.insert("content-type".to_string(), "text/html".to_string());
+    response_headers.insert("cache-control".to_string(), "max-age=3600".to_string());
+
+    // Request headers include accept — must end up on the *request* side.
+    let mut request_headers = HashMap::new();
+    request_headers.insert("accept".to_string(), "text/html".to_string());
+
+    let http_response = HttpResponse {
+        body: body.clone(),
+        headers: response_headers.clone(),
+        status: 200,
+        url: url::Url::parse(test_url).unwrap(),
+        version: HttpVersion::Http11,
+    };
+
+    LOCAL_SESSION_CACHE.remove(&cache_site);
+
+    // Use put_hybrid_cache WITHOUT remote dump to test CachePolicy construction.
+    // This avoids worker timing issues.
+    put_hybrid_cache(
+        &cache_key,
+        &cache_site,
+        http_response,
+        "GET",
+        request_headers.clone(),
+        None, // no remote dump — just local + session cache
+    )
+    .await;
+
+    // Verify the session cache entry exists and has a non-stale policy
+    // (would be stale if cache-control ended up on the wrong side).
+    let session_key = format!("GET:{}", test_url);
+    let cached = get_session_cache_item(&cache_site, &session_key);
+    assert!(
+        cached.is_some(),
+        "session cache should have the entry after put_hybrid_cache"
+    );
+
+    let (_http_res, policy) = cached.unwrap();
+    assert!(
+        !policy.is_stale(std::time::SystemTime::now()),
+        "policy must not be stale — max-age=3600 response header must be on the response side"
+    );
+
+    // Separately verify that dump_to_remote_cache_parts preserves headers
+    // correctly (direct call, no worker involved).
+    dump_to_remote_cache_parts(
+        &cache_key,
+        &cache_site,
+        test_url,
+        &body,
+        "GET",
+        200,
+        &request_headers,
+        &response_headers,
+        &HttpVersion::Http11,
+        Some(&base_url),
+    )
+    .await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    {
+        let s = store.lock().await;
+        let entries = s.get(&cache_site).expect("remote server should have the entry");
+        assert!(!entries.is_empty());
+
+        let entry = &entries[0];
+        let resp_h = entry["response_headers"].as_object().unwrap();
+        assert_eq!(
+            resp_h.get("cache-control").and_then(|v| v.as_str()),
+            Some("max-age=3600"),
+            "response headers must be preserved in remote dump"
+        );
+
+        let req_h = entry["request_headers"].as_object().unwrap();
+        assert_eq!(
+            req_h.get("accept").and_then(|v| v.as_str()),
+            Some("text/html"),
+            "request headers must be preserved in remote dump"
+        );
+    }
+}
+
 /// Regression test: `put_hybrid_cache` on a cold local cache (no existing entry)
 /// must still dump to the remote server.  Before the fix, `Ok(None)` from
 /// `CACACHE_MANAGER.get()` was treated as "fresh entry" and the dump was skipped.

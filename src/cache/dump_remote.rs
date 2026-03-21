@@ -8,7 +8,7 @@ use crate::http::HttpVersion;
 
 static REMOTE_DUMP_TX: OnceCell<mpsc::Sender<DumpJob>> = OnceCell::const_new();
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DumpJob {
     pub cache_key: String,
     pub cache_site: String,
@@ -37,23 +37,24 @@ async fn init_inner(queue_cap: usize, qps: u32, timeout_ms: u64) -> mpsc::Sender
         let mut inflight: HashSet<String> = HashSet::new();
 
         while let Some(job) = rx.recv().await {
-            if !inflight.insert(job.cache_key.clone()) {
+            let key = job.cache_key.clone();
+            if !inflight.insert(key.clone()) {
                 continue;
             }
             tick.tick().await;
 
             let timeout = Duration::from_millis(timeout_ms);
-            let res = tokio::time::timeout(timeout, dump_job(job.clone())).await;
+            let res = tokio::time::timeout(timeout, dump_job(job)).await;
 
             if res.is_err() {
                 tracing::warn!(
                     "remote cache dump: timed out after {}ms for {}",
                     timeout_ms,
-                    job.cache_key
+                    key
                 );
             }
 
-            inflight.remove(&job.cache_key);
+            inflight.remove(&key);
         }
     });
 
