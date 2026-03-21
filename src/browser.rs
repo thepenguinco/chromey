@@ -7,10 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use futures::channel::mpsc::{channel, unbounded, Sender};
-use futures::channel::oneshot::channel as oneshot_channel;
-use futures::select;
-use futures::SinkExt;
+use tokio::sync::mpsc::{channel, unbounded_channel, Sender};
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 use crate::async_process::{self, Child, ExitStatus, Stdio};
 use crate::cmd::{to_command_response, CommandMessage};
@@ -313,7 +311,6 @@ impl Browser {
         let (tx, rx) = oneshot_channel();
 
         self.sender
-            .clone()
             .send(HandlerMessage::FetchTargets(tx))
             .await?;
 
@@ -330,7 +327,6 @@ impl Browser {
         let (tx, rx) = oneshot_channel();
 
         self.sender
-            .clone()
             .send(HandlerMessage::CloseBrowser(tx))
             .await?;
 
@@ -417,7 +413,6 @@ impl Browser {
                 .await?;
             self.browser_context = BrowserContext::from(browser_context_id);
             self.sender
-                .clone()
                 .send(HandlerMessage::InsertContext(self.browser_context.clone()))
                 .await?;
         }
@@ -437,7 +432,6 @@ impl Browser {
         self.dispose_browser_context(browser_context_id.clone())
             .await?;
         self.sender
-            .clone()
             .send(HandlerMessage::DisposeContext(BrowserContext::from(
                 browser_context_id,
             )))
@@ -493,7 +487,6 @@ impl Browser {
 
         let _ = self
             .sender
-            .clone()
             .send(HandlerMessage::CreatePage(params, tx))
             .await;
 
@@ -517,7 +510,6 @@ impl Browser {
         let msg = CommandMessage::new(cmd, tx)?;
 
         self.sender
-            .clone()
             .send(HandlerMessage::Command(msg))
             .await?;
         let resp = rx.await??;
@@ -610,7 +602,6 @@ impl Browser {
     pub async fn pages(&self) -> Result<Vec<Page>> {
         let (tx, rx) = oneshot_channel();
         self.sender
-            .clone()
             .send(HandlerMessage::GetPages(tx))
             .await?;
         Ok(rx.await?)
@@ -620,7 +611,6 @@ impl Browser {
     pub async fn get_page(&self, target_id: TargetId) -> Result<Page> {
         let (tx, rx) = oneshot_channel();
         self.sender
-            .clone()
             .send(HandlerMessage::GetPage(target_id, tx))
             .await?;
         rx.await?.ok_or(CdpError::NotFound)
@@ -628,9 +618,8 @@ impl Browser {
 
     /// Set listener for browser event
     pub async fn event_listener<T: IntoEventKind>(&self) -> Result<EventStream<T>> {
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         self.sender
-            .clone()
             .send(HandlerMessage::AddEventListener(
                 EventListenerRequest::new::<T>(tx),
             ))
@@ -665,7 +654,6 @@ impl Browser {
     ) -> Result<&Self> {
         self.browser_context = BrowserContext::from(browser_context_id);
         self.sender
-            .clone()
             .send(HandlerMessage::InsertContext(self.browser_context.clone()))
             .await?;
         Ok(self)
@@ -746,22 +734,21 @@ async fn ws_url_from_output(
     child_process: &mut Child,
     timeout_fut: impl Future<Output = ()> + Unpin,
 ) -> Result<String> {
-    use futures::{AsyncBufReadExt, FutureExt};
-    let mut timeout_fut = timeout_fut.fuse();
+    use tokio::io::AsyncBufReadExt;
     let stderr = child_process.stderr.take().expect("no stderror");
     let mut stderr_bytes = Vec::<u8>::new();
-    let mut exit_status_fut = Box::pin(child_process.wait()).fuse();
-    let mut buf = futures::io::BufReader::new(stderr);
+    let mut buf = tokio::io::BufReader::new(stderr);
+    let mut timeout_fut = timeout_fut;
     loop {
-        select! {
-            _ = timeout_fut => return Err(CdpError::LaunchTimeout(BrowserStderr::new(stderr_bytes))),
-            exit_status = exit_status_fut => {
+        tokio::select! {
+            _ = &mut timeout_fut => return Err(CdpError::LaunchTimeout(BrowserStderr::new(stderr_bytes))),
+            exit_status = child_process.wait() => {
                 return Err(match exit_status {
                     Err(e) => CdpError::LaunchIo(e, BrowserStderr::new(stderr_bytes)),
                     Ok(exit_status) => CdpError::LaunchExit(exit_status, BrowserStderr::new(stderr_bytes)),
                 })
             },
-            read_res = buf.read_until(b'\n', &mut stderr_bytes).fuse() => {
+            read_res = buf.read_until(b'\n', &mut stderr_bytes) => {
                 match read_res {
                     Err(e) => return Err(CdpError::LaunchIo(e, BrowserStderr::new(stderr_bytes))),
                     Ok(byte_count) => {

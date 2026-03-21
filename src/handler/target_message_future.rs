@@ -1,11 +1,8 @@
-use futures::channel::{
-    mpsc,
-    oneshot::{self, channel as oneshot_channel},
-};
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::handler::target::TargetMessage;
 use crate::{error::Result, ArcHttpRequest};
@@ -20,7 +17,6 @@ pin_project! {
     pub struct TargetMessageFuture<T> {
         #[pin]
         rx_request: oneshot::Receiver<T>,
-        #[pin]
         target_sender: mpsc::Sender<TargetMessage>,
         message: Option<TargetMessage>,
     }
@@ -49,7 +45,7 @@ impl<T> TargetMessageFuture<T> {
         target_sender: TargetSender,
         make_msg: impl FnOnce(oneshot::Sender<ArcHttpRequest>) -> TargetMessage,
     ) -> TargetMessageFuture<ArcHttpRequest> {
-        let (tx, rx_request) = oneshot_channel();
+        let (tx, rx_request) = oneshot::channel();
         let message = make_msg(tx);
         TargetMessageFuture::new(target_sender, message, rx_request)
     }
@@ -91,15 +87,18 @@ impl<T> Future for TargetMessageFuture<T> {
         let mut this = self.project();
 
         if this.message.is_some() {
-            match this.target_sender.poll_ready(cx) {
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
-                Poll::Ready(Ok(_)) => {
-                    let message = this.message.take().expect("existence checked above");
-                    this.target_sender.start_send(message)?;
+            let message = this.message.take().expect("existence checked above");
+            match this.target_sender.try_send(message) {
+                Ok(()) => {
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
-                Poll::Pending => Poll::Pending,
+                Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                    *this.message = Some(msg);
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Err(e) => Poll::Ready(Err(e.into())),
             }
         } else {
             this.rx_request.as_mut().poll(cx).map_err(Into::into)

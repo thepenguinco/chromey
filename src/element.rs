@@ -4,7 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::{future, Future, FutureExt, Stream};
+use futures_util::{future, FutureExt, Stream};
+use std::future::Future;
 
 use chromiumoxide_cdp::cdp::browser_protocol::dom::{
     BackendNodeId, DescribeNodeParams, GetBoxModelParams, GetContentQuadsParams, Node, NodeId,

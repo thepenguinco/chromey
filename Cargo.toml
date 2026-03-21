@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.42.6"
+version = "2.42.7"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -18,14 +18,13 @@ name = "chromiumoxide"
 [dependencies]
 tokio-tungstenite = "0.29"
 serde = { version = "1", features = ["derive"] }
-futures = "0.3"
+futures-util = "0.3"
 serde_json = { version = "1" }
 which = { version = "8", optional = true }
 thiserror = "2"
 url = "2"
 base64 = "0.22"
 fnv = "1"
-futures-timer = "3"
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "time",
@@ -87,7 +86,7 @@ proc-macro2 = "1"
 chrono = "0.4"
 tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
-futures = "0.3"
+futures-util = "0.3"
 anyhow = "1"
 
 [features]

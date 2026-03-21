@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};

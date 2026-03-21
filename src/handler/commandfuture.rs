@@ -1,12 +1,9 @@
-use futures::channel::{
-    mpsc,
-    oneshot::{self, channel as oneshot_channel},
-};
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::Result;
@@ -19,13 +16,9 @@ pin_project! {
     pub struct CommandFuture<T, M = Result<Response>> {
         #[pin]
         rx_command: oneshot::Receiver<M>,
-        #[pin]
         target_sender: mpsc::Sender<TargetMessage>,
-        // We need delay to be pinned because it's a future
-        // and we need to be able to poll it
-        // it is used to timeout the command if page was closed while waiting for response
         #[pin]
-        delay: futures_timer::Delay,
+        delay: tokio::time::Sleep,
 
         message: Option<TargetMessage>,
 
@@ -43,14 +36,14 @@ impl<T: Command> CommandFuture<T> {
         session: Option<SessionId>,
         request_timeout: std::time::Duration,
     ) -> Result<Self> {
-        let (tx, rx_command) = oneshot_channel::<Result<Response>>();
+        let (tx, rx_command) = oneshot::channel::<Result<Response>>();
         let method = cmd.identifier();
 
         let message = Some(TargetMessage::Command(CommandMessage::with_session(
             cmd, tx, session,
         )?));
 
-        let delay = futures_timer::Delay::new(request_timeout);
+        let delay = tokio::time::sleep(request_timeout);
 
         Ok(Self {
             target_sender,
@@ -73,16 +66,18 @@ where
         let mut this = self.project();
 
         if this.message.is_some() {
-            match this.target_sender.poll_ready(cx) {
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
-                Poll::Ready(Ok(_)) => {
-                    let message = this.message.take().expect("existence checked above");
-                    this.target_sender.start_send(message)?;
-
+            let message = this.message.take().expect("existence checked above");
+            match this.target_sender.try_send(message) {
+                Ok(()) => {
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
-                Poll::Pending => Poll::Pending,
+                Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                    *this.message = Some(msg);
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Err(e) => Poll::Ready(Err(e.into())),
             }
         } else if this.delay.poll(cx).is_ready() {
             Poll::Ready(Err(crate::error::CdpError::Timeout))

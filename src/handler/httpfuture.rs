@@ -1,10 +1,10 @@
-use futures::channel::mpsc;
-use futures::future::{Fuse, FusedFuture};
-use futures::FutureExt;
+use futures_util::future::{Fuse, FusedFuture};
+use futures_util::FutureExt;
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::sync::mpsc;
 
 use crate::handler::commandfuture::CommandFuture;
 use crate::handler::target::TargetMessage;

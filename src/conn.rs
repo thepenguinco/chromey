@@ -3,9 +3,8 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::ready;
 
-use futures::stream::Stream;
-use futures::task::{Context, Poll};
-use futures::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
+use std::task::{Context, Poll};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{tungstenite::protocol::WebSocketConfig, WebSocketStream};

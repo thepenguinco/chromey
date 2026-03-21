@@ -1,12 +1,10 @@
 use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
 use chromiumoxide_cdp::cdp::browser_protocol::target::DetachFromTargetParams;
-use futures::channel::oneshot::Sender;
-use futures::stream::Stream;
-use futures::task::{Context, Poll};
+use std::task::{Context, Poll};
+use tokio::sync::oneshot::Sender;
 
 use crate::auth::Credentials;
 use crate::cdp::browser_protocol::target::CloseTargetParams;
@@ -615,7 +613,7 @@ impl Target {
             }
 
             if let Some(handle) = self.page.as_mut() {
-                while let Poll::Ready(Some(msg)) = Pin::new(&mut handle.rx).poll_next(cx) {
+                while let Poll::Ready(Some(msg)) = handle.rx.poll_recv(cx) {
                     if self.init_state == TargetInit::Closing {
                         break;
                     }

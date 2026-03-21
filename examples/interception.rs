@@ -5,7 +5,7 @@ use base64::Engine;
 use chromiumoxide::cdp::browser_protocol::fetch::{
     ContinueRequestParams, EventRequestPaused, FulfillRequestParams,
 };
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 use chromiumoxide::browser::{Browser, BrowserConfig};
 

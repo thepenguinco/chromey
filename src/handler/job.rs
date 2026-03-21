@@ -2,8 +2,8 @@ use std::pin::Pin;
 use std::task::Context;
 use std::time::Duration;
 
-use futures::Future;
-use futures_timer::Delay;
+use std::future::Future;
+use tokio::time::Sleep;
 
 use crate::handler::REQUEST_TIMEOUT;
 
@@ -13,22 +13,24 @@ pub(crate) struct PeriodicJob {
     /// The interval between job executions.
     interval: Duration,
     /// The delay timer used to wait between executions.
-    delay: Delay,
+    delay: Pin<Box<Sleep>>,
 }
 
 impl PeriodicJob {
     /// Returns `true` if the job is currently not running but ready
     /// to be run, `false` otherwise.
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> bool {
-        if !Future::poll(Pin::new(&mut self.delay), cx).is_pending() {
-            self.delay.reset(self.interval);
+        if !Future::poll(self.delay.as_mut(), cx).is_pending() {
+            self.delay
+                .as_mut()
+                .reset(tokio::time::Instant::now() + self.interval);
             return true;
         }
         false
     }
     pub fn new(interval: Duration) -> Self {
         Self {
-            delay: Delay::new(interval),
+            delay: Box::pin(tokio::time::sleep(interval)),
             interval,
         }
     }

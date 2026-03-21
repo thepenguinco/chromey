@@ -11,7 +11,7 @@ This project is a fork of [chromiumoxide](https://github.com/mattsse/chromiumoxi
 
 ```rust
 use chromiumoxide::browser::{Browser, BrowserConfig};
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -95,7 +95,7 @@ Based on your runtime and TLS configuration you should enable one of the followi
 ```rust
 use std::path::Path;
 
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 use chromiumoxide::browser::{BrowserConfig};
 use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};

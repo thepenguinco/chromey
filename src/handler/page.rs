@@ -4,10 +4,8 @@ use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeParamsBuilder, GetFullAxTreeReturns, GetPartialAxTreeParamsBuilder,
     GetPartialAxTreeReturns,
 };
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::channel::oneshot::channel as oneshot_channel;
-use futures::stream::Fuse;
-use futures::{SinkExt, StreamExt};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 use chromiumoxide_cdp::cdp::browser_protocol::browser::{GetVersionParams, GetVersionReturns};
 use chromiumoxide_cdp::cdp::browser_protocol::dom::{
@@ -47,7 +45,7 @@ use crate::{keys, utils, ArcHttpRequest};
 
 #[derive(Debug)]
 pub struct PageHandle {
-    pub(crate) rx: Fuse<Receiver<TargetMessage>>,
+    pub(crate) rx: Receiver<TargetMessage>,
     page: Arc<PageInner>,
 }
 
@@ -68,7 +66,7 @@ impl PageHandle {
             request_timeout,
         };
         Self {
-            rx: rx.fuse(),
+            rx,
             page: Arc::new(page),
         }
     }
@@ -844,7 +842,6 @@ impl PageInner {
     ) -> Result<Option<ExecutionContextId>> {
         let (tx, rx) = oneshot_channel();
         self.sender
-            .clone()
             .send(TargetMessage::GetExecutionContext(GetExecutionContext {
                 dom_world,
                 frame_id,
@@ -951,9 +948,9 @@ pub(crate) async fn execute<T: Command>(
 /// Execute a command without waiting
 pub(crate) async fn send_command<T: Command>(
     cmd: T,
-    mut sender: Sender<TargetMessage>,
+    sender: Sender<TargetMessage>,
     session: Option<SessionId>,
-) -> Result<futures::channel::oneshot::Receiver<Result<chromiumoxide_types::Response, CdpError>>> {
+) -> Result<tokio::sync::oneshot::Receiver<Result<chromiumoxide_types::Response, CdpError>>> {
     let (tx, rx) = oneshot_channel();
     let msg = CommandMessage::with_session(cmd, tx, session)?;
     sender.send(TargetMessage::Command(msg)).await?;

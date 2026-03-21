@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::channel::mpsc::{SendError, UnboundedReceiver, UnboundedSender};
-use futures::{Sink, Stream};
+use futures_util::Stream;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use chromiumoxide_cdp::cdp::{Event, EventKind, IntoEventKind};
 use chromiumoxide_types::MethodId;
@@ -123,17 +123,15 @@ impl EventListeners {
 
     /// Drains all queued events and does housekeeping when the receiver is dropped.
     pub fn poll(&mut self, cx: &mut Context<'_>) {
+        let _ = cx;
         for subscriptions in self.listeners.values_mut() {
             for n in (0..subscriptions.len()).rev() {
                 let mut sub = subscriptions.swap_remove(n);
-                match sub.poll(cx) {
-                    Poll::Ready(Err(err)) => {
-                        // disconnected
-                        if !err.is_disconnected() {
-                            subscriptions.push(sub);
-                        }
+                match sub.flush() {
+                    Ok(()) => subscriptions.push(sub),
+                    Err(_) => {
+                        // disconnected — drop the listener
                     }
-                    _ => subscriptions.push(sub),
                 }
             }
         }
@@ -185,23 +183,15 @@ impl EventListener {
         self.queued_events.push_back(event)
     }
 
-    /// Drains all queued events and begins sending them to the sink.
-    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
-        loop {
-            match Sink::poll_ready(Pin::new(&mut self.listener), cx) {
-                Poll::Ready(Ok(_)) => {}
-                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
-                Poll::Pending => return Poll::Pending,
-            }
-
-            if let Some(event) = self.queued_events.pop_front() {
-                if let Err(err) = Sink::start_send(Pin::new(&mut self.listener), event) {
-                    return Poll::Ready(Err(err));
-                }
-            } else {
-                return Poll::Ready(Ok(()));
-            }
+    /// Drains all queued events, sending them synchronously via the unbounded channel.
+    /// Returns `Err` if the receiver has been dropped.
+    pub fn flush(
+        &mut self,
+    ) -> std::result::Result<(), mpsc::error::SendError<Arc<dyn Event>>> {
+        while let Some(event) = self.queued_events.pop_front() {
+            self.listener.send(event)?;
         }
+        Ok(())
     }
 }
 
@@ -239,12 +229,13 @@ impl<T: IntoEventKind + Unpin> Stream for EventStream<T> {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let pin = self.get_mut();
-        match Stream::poll_next(Pin::new(&mut pin.events), cx) {
+        match pin.events.poll_recv(cx) {
             Poll::Ready(Some(event)) => {
                 if let Ok(e) = event.into_any_arc().downcast() {
                     Poll::Ready(Some(e))
                 } else {
                     // wrong type for this stream; keep polling
+                    cx.waker().wake_by_ref();
                     Poll::Pending
                 }
             }
@@ -256,7 +247,7 @@ impl<T: IntoEventKind + Unpin> Stream for EventStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use futures::{SinkExt, StreamExt};
+    use futures_util::StreamExt;
 
     use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
     use chromiumoxide_cdp::cdp::CustomEvent;
@@ -266,14 +257,14 @@ mod tests {
 
     #[tokio::test]
     async fn event_stream() {
-        let (mut tx, rx) = futures::channel::mpsc::unbounded();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = EventStream::<EventAnimationCanceled>::new(rx);
 
         let event = EventAnimationCanceled {
             id: "id".to_string(),
         };
         let msg: Arc<dyn Event> = Arc::new(event.clone());
-        tx.send(msg).await.unwrap();
+        tx.send(msg).unwrap();
         let next = stream.next().await.unwrap();
         assert_eq!(&*next, &event);
     }
@@ -294,21 +285,21 @@ mod tests {
         }
         impl CustomEvent for MyCustomEvent {}
 
-        let (mut tx, rx) = futures::channel::mpsc::unbounded();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = EventStream::<MyCustomEvent>::new(rx);
 
         let event = MyCustomEvent {
             name: "my event".to_string(),
         };
         let msg: Arc<dyn Event> = Arc::new(event.clone());
-        tx.send(msg).await.unwrap();
+        tx.send(msg).unwrap();
         let next = stream.next().await.unwrap();
         assert_eq!(&*next, &event);
     }
 
     #[tokio::test]
     async fn remove_listener_immediately_stops_delivery() {
-        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let mut listeners = EventListeners::default();
 
         let handle =
@@ -319,12 +310,13 @@ mod tests {
             id: "nope".to_string(),
         });
 
-        futures::future::poll_fn(|cx| {
+        std::future::poll_fn(|cx| {
             listeners.poll(cx);
             Poll::Ready(())
         })
         .await;
 
-        assert!(rx.try_next().is_err() || rx.try_next().unwrap().is_none());
+        // The listener was removed, so nothing should have been sent
+        assert!(rx.try_recv().is_err());
     }
 }

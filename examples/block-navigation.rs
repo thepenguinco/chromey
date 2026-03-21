@@ -11,7 +11,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     self, ErrorReason, EventRequestWillBeSent, ResourceType,
 };
 use chromiumoxide::Page;
-use futures::{select, StreamExt};
+use futures_util::StreamExt;
 use tokio::time::sleep;
 
 use chromiumoxide::browser::{Browser, BrowserConfig};
@@ -47,20 +47,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut request_will_be_sent = page
         .event_listener::<EventRequestWillBeSent>()
         .await
-        .unwrap()
-        .fuse();
+        .unwrap();
     let mut request_paused = page
         .event_listener::<EventRequestPaused>()
         .await
-        .unwrap()
-        .fuse();
+        .unwrap();
     let intercept_page = page.clone();
     let intercept_handle = tokio::task::spawn(async move {
         let mut resolutions: HashMap<network::RequestId, InterceptResolution> = HashMap::new();
         loop {
-            select! {
+            tokio::select! {
               event = request_paused.next() => {
-                if let Some(event) = event {
+                match event {
+                  Some(event) => {
                     // Responses
                     if event.response_status_code.is_some() {
                         forward(&intercept_page, &event.request_id).await;
@@ -77,9 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         resolve(&intercept_page, &network_id, &mut resolutions).await;
                     }
                   }
+                  None => break,
+                }
               },
               event = request_will_be_sent.next() => {
-                  if let Some(event) = event {
+                  match event {
+                    Some(event) => {
                       let resolution = resolutions.entry(event.request_id.clone()).or_insert(InterceptResolution::new());
                       let action = if is_navigation(&event) {
                           InterceptAction::Abort
@@ -89,9 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                       resolution.action = action;
                       println!("sent: {resolution:?}");
                       resolve(&intercept_page, &event.request_id, &mut resolutions).await;
+                    }
+                    None => break,
                   }
               },
-              complete => break,
             }
         }
 

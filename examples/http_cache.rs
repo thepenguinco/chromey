@@ -6,7 +6,7 @@ use chromiumoxide::{
     handler::HandlerConfig,
     init_default_cache_worker,
 };
-use futures::StreamExt;
+use futures_util::StreamExt;
 use std::time::{Duration, Instant};
 
 #[tokio::main]

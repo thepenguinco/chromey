@@ -4,7 +4,7 @@ use chromiumoxide::{
     cdp::browser_protocol::{page::NavigateParams, target::CreateTargetParams},
     handler::HandlerConfig,
 };
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 async fn test_connect(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut conf = HandlerConfig::default();

@@ -6,7 +6,7 @@
 //!
 //! # Example
 //! ```no_run
-//! use futures::StreamExt;
+//! use futures_util::StreamExt;
 //! use chromiumoxide::{Browser, BrowserConfig};
 //!
 //! #[tokio::main]

@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::iter::FromIterator;
 use std::time::{Duration, Instant};
 
-use futures::channel::oneshot::Sender as OneshotSender;
-use futures::task::Poll;
+use tokio::sync::oneshot::Sender as OneshotSender;
+use std::task::Poll;
 use serde::Serialize;
 
 use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;

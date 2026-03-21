@@ -6,7 +6,7 @@
 //!   cargo test --test browser_integration
 
 use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use std::path::PathBuf;
 use tokio::time::{timeout, Duration};
 

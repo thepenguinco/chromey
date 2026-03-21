@@ -3,7 +3,7 @@
 // and goto will cause a timeout.
 
 use chromiumoxide::handler::HandlerConfig;
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() {

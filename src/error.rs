@@ -4,12 +4,9 @@ use std::process::ExitStatus;
 use std::time::Instant;
 
 use base64::DecodeError;
-use futures::channel::mpsc::SendError;
-use futures::channel::oneshot::Canceled;
 use thiserror::Error;
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::Message;
-// use tokio::sync::oneshot::error::RecvError;
 use chromiumoxide_cdp::cdp::browser_protocol::page::FrameId;
 
 use crate::handler::frame::NavigationError;
@@ -64,8 +61,6 @@ pub enum CdpError {
     JavascriptException(Box<ExceptionDetails>),
     #[error("{0}")]
     Url(#[from] url::ParseError),
-    // #[error("{0}")]
-    // RecvError(#[from] RecvError),
 }
 
 impl CdpError {
@@ -76,20 +71,32 @@ impl CdpError {
 
 #[derive(Debug, Error)]
 pub enum ChannelError {
+    #[error("channel closed")]
+    Send,
     #[error("{0}")]
-    Send(#[from] SendError),
-    #[error("{0}")]
-    Canceled(#[from] Canceled),
+    Canceled(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
-impl From<Canceled> for CdpError {
-    fn from(err: Canceled) -> Self {
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for ChannelError {
+    fn from(_: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        ChannelError::Send
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CdpError {
+    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
         ChannelError::from(err).into()
     }
 }
 
-impl From<SendError> for CdpError {
-    fn from(err: SendError) -> Self {
+impl<T> From<tokio::sync::mpsc::error::TrySendError<T>> for CdpError {
+    fn from(_: tokio::sync::mpsc::error::TrySendError<T>) -> Self {
+        ChannelError::Send.into()
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for CdpError {
+    fn from(err: tokio::sync::oneshot::error::RecvError) -> Self {
         ChannelError::from(err).into()
     }
 }

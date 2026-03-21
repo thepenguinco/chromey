@@ -29,9 +29,9 @@ use chromiumoxide_cdp::cdp::js_protocol::runtime::{
 };
 use chromiumoxide_cdp::cdp::{browser_protocol, IntoEventKind};
 use chromiumoxide_types::*;
-use futures::channel::mpsc::unbounded;
-use futures::channel::oneshot::channel as oneshot_channel;
-use futures::{stream, SinkExt, StreamExt};
+use futures_util::{stream, StreamExt};
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::oneshot::channel as oneshot_channel;
 use spider_fingerprint::configs::{AgentOs, Tier};
 
 use crate::auth::Credentials;
@@ -429,7 +429,7 @@ impl Page {
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
     /// # use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
-    /// # use futures::StreamExt;
+    /// # use futures_util::StreamExt;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let mut events = page.event_listener::<EventAnimationCanceled>().await?;
     ///     while let Some(event) = events.next().await {
@@ -444,7 +444,7 @@ impl Page {
     /// ```no_run
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
-    /// # use futures::StreamExt;
+    /// # use futures_util::StreamExt;
     /// # use serde::Deserialize;
     /// # use chromiumoxide::types::{MethodId, MethodType};
     /// # use chromiumoxide::cdp::CustomEvent;
@@ -468,11 +468,10 @@ impl Page {
     /// # }
     /// ```
     pub async fn event_listener<T: IntoEventKind>(&self) -> Result<EventStream<T>> {
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
 
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::AddEventListener(
                 EventListenerRequest::new::<T>(tx),
             ))
@@ -993,7 +992,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::Name(GetName {
                 frame_id: Some(frame_id),
                 tx,
@@ -1005,7 +1003,6 @@ impl Page {
     pub async fn authenticate(&self, credentials: Credentials) -> Result<()> {
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::Authenticate(credentials))
             .await?;
 
@@ -1016,7 +1013,6 @@ impl Page {
     pub async fn set_blocked_networking(&self, blocked: bool) -> Result<()> {
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::BlockNetwork(blocked))
             .await?;
 
@@ -1027,7 +1023,6 @@ impl Page {
     pub async fn set_request_interception(&self, enabled: bool) -> Result<()> {
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::EnableInterception(enabled))
             .await?;
 
@@ -1039,7 +1034,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::Url(GetUrl::new(tx)))
             .await?;
         Ok(rx.await?)
@@ -1050,7 +1044,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::Url(GetUrl {
                 frame_id: Some(frame_id),
                 tx,
@@ -1064,7 +1057,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::Parent(GetParent { frame_id, tx }))
             .await?;
         Ok(rx.await?)
@@ -1075,7 +1067,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::MainFrame(tx))
             .await?;
         Ok(rx.await?)
@@ -1086,7 +1077,6 @@ impl Page {
         let (tx, rx) = oneshot_channel();
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::AllFrames(tx))
             .await?;
         Ok(rx.await?)
@@ -1100,7 +1090,6 @@ impl Page {
     ) -> Result<()> {
         self.inner
             .sender()
-            .clone()
             .send(TargetMessage::CacheKey(cache_key))
             .await?;
         Ok(())

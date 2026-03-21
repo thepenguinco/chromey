@@ -6,10 +6,10 @@ use chromiumoxide_cdp::cdp::events::CdpEventMessage;
 use chromiumoxide_types::{CallId, Message, Method, Response};
 use chromiumoxide_types::{MethodId, Request as CdpRequest};
 use fnv::FnvHashMap;
-use futures::channel::mpsc::Receiver;
-use futures::channel::oneshot::Sender as OneshotSender;
-use futures::stream::{Fuse, Stream, StreamExt};
-use futures::task::{Context, Poll};
+use futures_util::Stream;
+use std::task::{Context, Poll};
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::oneshot::Sender as OneshotSender;
 use hashbrown::{HashMap, HashSet};
 use spider_network_blocker::intercept_manager::NetworkInterceptManager;
 use std::pin::Pin;
@@ -63,7 +63,7 @@ pub struct Handler {
     /// started.
     pending_commands: FnvHashMap<CallId, (PendingRequest, MethodId, Instant)>,
     /// Connection to the browser instance
-    from_browser: Fuse<Receiver<HandlerMessage>>,
+    from_browser: Receiver<HandlerMessage>,
     /// Used to loop over all targets in a consistent manner
     target_ids: Vec<TargetId>,
     /// The created and attached targets
@@ -141,7 +141,7 @@ impl Handler {
 
         Self {
             pending_commands: Default::default(),
-            from_browser: rx.fuse(),
+            from_browser: rx,
             default_browser_context: Default::default(),
             browser_contexts,
             target_ids: Default::default(),
@@ -595,7 +595,7 @@ impl Stream for Handler {
             // temporary pinning of the browser receiver should be safe as we are pinning
             // through the already pinned self. with the receivers we can also
             // safely ignore exhaustion as those are fused.
-            while let Poll::Ready(Some(msg)) = Pin::new(&mut pin.from_browser).poll_next(cx) {
+            while let Poll::Ready(Some(msg)) = pin.from_browser.poll_recv(cx) {
                 match msg {
                     HandlerMessage::Command(cmd) => {
                         pin.submit_external_command(cmd, now)?;
